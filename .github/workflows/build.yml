@@ -21,22 +21,13 @@ jobs:
           distribution: 'temurin'
 
       - name: Set up Gradle
-        uses: gradle/wrapper-validation-action@v1
+        uses: gradle/gradle-setup-action@v2
+        with:
+          gradle-version: 8.3
 
-      - name: Download Gradle
+      - name: Build with Gradle
         run: |
-          mkdir -p gradle/wrapper
-          wget -q https://services.gradle.org/distributions/gradle-8.3-bin.zip -O gradle.zip
-          unzip -q gradle.zip
-          cp gradle-8.3/lib/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.jar
-          rm -rf gradle.zip gradle-8.3
-        shell: bash
-
-      - name: Build with Gradle wrapper
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
-        shell: bash
+          ./gradlew assembleDebug -p app
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
