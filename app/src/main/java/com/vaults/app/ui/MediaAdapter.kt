@@ -16,15 +16,15 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.vaults.app.R
 import com.vaults.app.db.GalleryType
-import com.vaults.app.vm.GalleryViewModel
+import com.vaults.app.vm.ResolvedItem
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 class MediaAdapter(
     private val galleryType: GalleryType,
-    private val onItemClick: (GalleryViewModel.ResolvedItem) -> Unit,
-    private val onItemDelete: (GalleryViewModel.ResolvedItem) -> Unit
-) : ListAdapter<GalleryViewModel.ResolvedItem, MediaAdapter.ViewHolder>(DiffCallback()) {
+    private val onItemClick: (ResolvedItem) -> Unit,
+    private val onItemDelete: (ResolvedItem) -> Unit
+) : ListAdapter<ResolvedItem, MediaAdapter.ViewHolder>(DiffCallback()) {
 
     private val players = ConcurrentHashMap<Long, ExoPlayer>()
 
@@ -52,29 +52,21 @@ class MediaAdapter(
         private val errorIcon: ImageView = itemView.findViewById(R.id.errorIcon)
         private val btnDelete: ImageButton = itemView.findViewById(R.id.btnDelete)
 
-        private var currentItem: GalleryViewModel.ResolvedItem? = null
+        private var currentItem: ResolvedItem? = null
         private var currentPlayer: ExoPlayer? = null
 
-        fun bind(item: GalleryViewModel.ResolvedItem) {
+        fun bind(item: ResolvedItem) {
             currentItem = item
 
             when {
-                item.isLoading -> {
-                    showLoading()
-                }
-                item.error != null -> {
-                    showError()
-                }
-                else -> {
-                    showThumbnail(item)
-                }
+                item.isLoading -> showLoading()
+                item.error != null -> showError()
+                else -> showThumbnail(item)
             }
 
             btnDelete.visibility = View.GONE
 
-            itemView.setOnClickListener {
-                onItemClick(item)
-            }
+            itemView.setOnClickListener { onItemClick(item) }
 
             itemView.setOnLongClickListener {
                 btnDelete.visibility = View.VISIBLE
@@ -101,19 +93,16 @@ class MediaAdapter(
             releasePlayer()
         }
 
-        private fun showThumbnail(item: GalleryViewModel.ResolvedItem) {
-            val hasLocalThumb = item.thumbnailPath != null && File(item.thumbnailPath).exists()
+        private fun showThumbnail(item: ResolvedItem) {
+            val hasLocalThumb = item.thumbnailPath != null && File(item.thumbnailPath!!).exists()
             val shouldAutoplay = galleryType == GalleryType.PORNHUB
             val hasUrl = item.resolvedUrl != null && (galleryType == GalleryType.PORNHUB || galleryType == GalleryType.NORMAL)
 
-            if (hasLocalThumb && shouldAutoplay && hasUrl) {
-                showVideoThumb(item)
-            } else if (hasLocalThumb) {
-                showImageThumb(item.thumbnailPath!!)
-            } else if (galleryType == GalleryType.REDGIF && item.embedUrl != null) {
-                showRedGifEmbed(item.embedUrl)
-            } else {
-                showPlaceholder()
+            when {
+                hasLocalThumb && shouldAutoplay && hasUrl -> showVideoThumb(item)
+                hasLocalThumb -> showImageThumb(item.thumbnailPath!!)
+                galleryType == GalleryType.REDGIF && item.embedUrl != null -> showRedGifEmbed(item.embedUrl!!)
+                else -> showPlaceholder()
             }
         }
 
@@ -130,7 +119,7 @@ class MediaAdapter(
                 .into(imageView)
         }
 
-        private fun showVideoThumb(item: GalleryViewModel.ResolvedItem) {
+        private fun showVideoThumb(item: ResolvedItem) {
             progressBar.visibility = View.GONE
             imageView.visibility = View.GONE
             playerView.visibility = View.VISIBLE
@@ -175,7 +164,6 @@ class MediaAdapter(
             playerView.visibility = View.GONE
             playIcon.visibility = View.VISIBLE
             errorIcon.visibility = View.GONE
-
             imageView.setImageResource(R.drawable.ic_placeholder)
         }
 
@@ -191,15 +179,11 @@ class MediaAdapter(
         players.clear()
     }
 
-    class DiffCallback : DiffUtil.ItemCallback<GalleryViewModel.ResolvedItem>() {
-        override fun areItemsTheSame(
-            oldItem: GalleryViewModel.ResolvedItem,
-            newItem: GalleryViewModel.ResolvedItem
-        ): Boolean = oldItem.id == newItem.id
+    class DiffCallback : DiffUtil.ItemCallback<ResolvedItem>() {
+        override fun areItemsTheSame(oldItem: ResolvedItem, newItem: ResolvedItem): Boolean =
+            oldItem.id == newItem.id
 
-        override fun areContentsTheSame(
-            oldItem: GalleryViewModel.ResolvedItem,
-            newItem: GalleryViewModel.ResolvedItem
-        ): Boolean = oldItem == newItem
+        override fun areContentsTheSame(oldItem: ResolvedItem, newItem: ResolvedItem): Boolean =
+            oldItem == newItem
     }
 }

@@ -21,30 +21,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class ResolvedItem(
-    val id: Long,
-    val galleryId: Long,
-    val value: String,
-    var thumbnailPath: String?,
-    var resolvedUrl: String?,
-    var embedUrl: String?,
-    var isLoading: Boolean,
-    var error: String?,
-    var sortOrder: Int
-) {
-    constructor(item: GalleryItem) : this(
-        id = item.id,
-        galleryId = item.galleryId,
-        value = item.value,
-        thumbnailPath = item.thumbnailPath,
-        resolvedUrl = null,
-        embedUrl = null,
-        isLoading = false,
-        error = null,
-        sortOrder = item.sortOrder
-    )
-}
-
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = VaultsApp.instance.db.galleryDao()
     private val itemDao = VaultsApp.instance.db.galleryItemDao()
@@ -63,7 +39,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private var currentGalleryType: GalleryType = GalleryType.NORMAL
     private var currentLoadMode: LoadMode = LoadMode.LAZY
-    private var currentColumnCount: Int = 3
 
     init {
         viewModelScope.launch {
@@ -89,7 +64,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _currentGallery.value = gallery
         currentGalleryType = gallery.type
         currentLoadMode = gallery.loadMode
-        currentColumnCount = gallery.columnCount
     }
 
     fun loadGallery(galleryId: Long) {
@@ -131,8 +105,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         items[index] = item.copy(isLoading = true)
         _resolvedItems.value = items.toList()
 
-        val result = when (currentGalleryType) {
-            GalleryType.NORMAL -> item.value
+        when (currentGalleryType) {
             GalleryType.PORNHUB -> {
                 val phResult = PHScraper.getFreshUrl(item.value)
                 items[index] = items[index].copy(
@@ -154,36 +127,22 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 _resolvedItems.value = items.toList()
                 return
             }
-            GalleryType.FOLDER -> return
-            GalleryType.NORMAL -> item.value
-        }
-
-        items[index] = items[index].copy(
-            resolvedUrl = result,
-            isLoading = false
-        )
-        _resolvedItems.value = items.toList()
-    }
-
-    fun resolveAllInGallery(galleryId: Long) {
-        viewModelScope.launch {
-            resolveAllItems(galleryId)
+            else -> {
+                items[index] = items[index].copy(
+                    resolvedUrl = item.value,
+                    isLoading = false
+                )
+                _resolvedItems.value = items.toList()
+            }
         }
     }
 
-    suspend fun createGallery(
-        name: String,
-        type: GalleryType,
-        parentId: Long? = null
-    ): Long = withContext(Dispatchers.IO) {
-        val existing = dao.getGalleryById(parentId ?: 0)
-        val sortOrder = if (existing != null) 0 else 0
-        
+    suspend fun createGallery(name: String, type: GalleryType, parentId: Long? = null): Long = withContext(Dispatchers.IO) {
         val gallery = Gallery(
             name = name,
             type = type,
             parentId = parentId,
-            sortOrder = sortOrder
+            sortOrder = 0
         )
         dao.insert(gallery)
     }
@@ -208,9 +167,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             
             if (currentGalleryType != GalleryType.REDGIF) {
                 items.forEach { item ->
-                    val thumbPath = ThumbnailDownloader.downloadThumbnail(
-                        item.id, currentGalleryType, item.value
-                    )
+                    val thumbPath = ThumbnailDownloader.downloadThumbnail(item.id, currentGalleryType, item.value)
                     if (thumbPath != null) {
                         itemDao.updateThumbnailPath(item.id, thumbPath)
                     }
@@ -230,18 +187,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         dao.update(gallery)
     }
 
-    suspend fun updateGallerySettings(
-        galleryId: Long,
-        columnCount: Int,
-        loadMode: LoadMode,
-        viewMode: ViewMode
-    ) = withContext(Dispatchers.IO) {
+    suspend fun updateGallerySettings(galleryId: Long, columnCount: Int, loadMode: LoadMode, viewMode: ViewMode) = withContext(Dispatchers.IO) {
         val gallery = dao.getGalleryById(galleryId) ?: return@withContext
-        dao.update(gallery.copy(
-            columnCount = columnCount,
-            loadMode = loadMode,
-            viewMode = viewMode
-        ))
+        dao.update(gallery.copy(columnCount = columnCount, loadMode = loadMode, viewMode = viewMode))
     }
 
     suspend fun deleteGallery(galleryId: Long) = withContext(Dispatchers.IO) {
@@ -255,19 +203,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _editMode.value = !(_editMode.value ?: false)
     }
 
-    fun setEditMode(enabled: Boolean) {
-        _editMode.value = enabled
-    }
-
     suspend fun reorderGalleries(galleries: List<Gallery>) = withContext(Dispatchers.IO) {
         galleries.forEachIndexed { index, gallery ->
             dao.updateSortOrder(gallery.id, index)
-        }
-    }
-
-    suspend fun reorderItems(items: List<GalleryItem>) = withContext(Dispatchers.IO) {
-        items.forEachIndexed { index, item ->
-            itemDao.updateSortOrder(item.id, index)
         }
     }
 }

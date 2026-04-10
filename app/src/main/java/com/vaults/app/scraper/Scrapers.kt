@@ -103,18 +103,15 @@ object RedGifScraper {
             val response = HttpClient.client.newCall(request).execute()
             
             if (response.isSuccessful) {
-                val body = response.body?.string() ?: return@withContext RedGifResult(null, embedUrl(cleanId))
+                val body: String = response.body?.string() ?: return@withContext RedGifResult(null, embedUrl(cleanId))
                 
-                var hdUrl: String? = null
-                var sdUrl: String? = null
+                val hdMatch = Pattern.compile(""""hd":\s*"([^"]+)"""").toRegex().find(body)
+                val sdMatch = Pattern.compile(""""sd":\s*"([^"]+)"""").toRegex().find(body)
                 
-                val hdRegex = Pattern.compile(""""hd":\s*"([^"]+)""""")
-                val sdRegex = Pattern.compile(""""sd":\s*"([^"]+)""""")
+                val hdUrl: String? = hdMatch?.groupValues?.get(1)
+                val sdUrl: String? = sdMatch?.groupValues?.get(1)
                 
-                hdRegex.find(body)?.let { hdUrl = it.group(1) }
-                sdRegex.find(body)?.let { sdUrl = it.group(1) }
-                
-                val directUrl = hdUrl ?: sdUrl
+                val directUrl: String? = hdUrl ?: sdUrl
                 RedGifResult(directUrl, embedUrl(cleanId))
             } else {
                 RedGifResult(null, embedUrl(cleanId))

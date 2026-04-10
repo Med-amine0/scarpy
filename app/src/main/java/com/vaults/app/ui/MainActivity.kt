@@ -48,7 +48,11 @@ class MainActivity : AppCompatActivity() {
             onItemClick = { gallery -> openGallery(gallery) },
             onItemRename = { gallery -> showRenameDialog(gallery) },
             onItemDelete = { gallery -> showDeleteDialog(gallery) },
-            onItemMove = { from, to -> viewModel.reorderGalleries(listOf(from, to)) }
+            onItemMove = { from, to -> 
+                lifecycleScope.launch { 
+                    viewModel.reorderGalleries(listOf(from, to)) 
+                } 
+            }
         )
 
         binding.recycler.layoutManager = GridLayoutManager(this, 2)
