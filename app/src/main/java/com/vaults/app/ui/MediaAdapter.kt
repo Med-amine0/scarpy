@@ -3,7 +3,6 @@ package com.vaults.app.ui
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.ProgressBar
@@ -44,7 +43,6 @@ class MediaAdapter(
     }
 
     inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val container: FrameLayout = itemView.findViewById(R.id.mediaContainer)
         private val imageView: ImageView = itemView.findViewById(R.id.thumbnailView)
         private val playerView: androidx.media3.ui.PlayerView = itemView.findViewById(R.id.playerView)
         private val progressBar: ProgressBar = itemView.findViewById(R.id.progressBar)
@@ -65,9 +63,7 @@ class MediaAdapter(
             }
 
             btnDelete.visibility = View.GONE
-
             itemView.setOnClickListener { onItemClick(item) }
-
             itemView.setOnLongClickListener {
                 btnDelete.visibility = View.VISIBLE
                 btnDelete.setOnClickListener { onItemDelete(item) }
@@ -96,12 +92,14 @@ class MediaAdapter(
         private fun showThumbnail(item: ResolvedItem) {
             val hasLocalThumb = item.thumbnailPath != null && File(item.thumbnailPath!!).exists()
             val shouldAutoplay = galleryType == GalleryType.PORNHUB
-            val hasUrl = item.resolvedUrl != null && (galleryType == GalleryType.PORNHUB || galleryType == GalleryType.NORMAL)
+            val hasResolvedUrl = item.resolvedUrl != null
 
             when {
-                hasLocalThumb && shouldAutoplay && hasUrl -> showVideoThumb(item)
+                shouldAutoplay && hasResolvedUrl -> showVideoThumb(item)
                 hasLocalThumb -> showImageThumb(item.thumbnailPath!!)
                 galleryType == GalleryType.REDGIF && item.embedUrl != null -> showRedGifEmbed(item.embedUrl!!)
+                galleryType == GalleryType.PORNHUB && item.value.isNotEmpty() -> showPhThumb(item.value)
+                galleryType == GalleryType.NORMAL && item.value.isNotEmpty() -> showUrlThumb(item.value)
                 else -> showPlaceholder()
             }
         }
@@ -115,6 +113,33 @@ class MediaAdapter(
 
             Glide.with(itemView.context)
                 .load(File(path))
+                .centerCrop()
+                .into(imageView)
+        }
+
+        private fun showUrlThumb(url: String) {
+            progressBar.visibility = View.GONE
+            imageView.visibility = View.VISIBLE
+            playerView.visibility = View.GONE
+            playIcon.visibility = View.GONE
+            errorIcon.visibility = View.GONE
+
+            Glide.with(itemView.context)
+                .load(url)
+                .centerCrop()
+                .into(imageView)
+        }
+
+        private fun showPhThumb(gifId: String) {
+            progressBar.visibility = View.GONE
+            imageView.visibility = View.VISIBLE
+            playerView.visibility = View.GONE
+            playIcon.visibility = View.GONE
+            errorIcon.visibility = View.GONE
+
+            val thumbUrl = "https://cdn.pornhub.phncdn.com/thumbnails/$gifId/preview/00007.jpg"
+            Glide.with(itemView.context)
+                .load(thumbUrl)
                 .centerCrop()
                 .into(imageView)
         }
@@ -152,8 +177,9 @@ class MediaAdapter(
             playIcon.visibility = View.VISIBLE
             errorIcon.visibility = View.GONE
 
+            val gifId = embedUrl.substringAfterLast("/")
             Glide.with(itemView.context)
-                .load("https://redgifs.com/ifr/${embedUrl.substringAfterLast("/")}")
+                .load("https://thumbs.redgifs.com/${gifId}-poster.jpg")
                 .centerCrop()
                 .into(imageView)
         }

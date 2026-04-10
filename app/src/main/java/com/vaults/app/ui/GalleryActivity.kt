@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.slider.Slider
 import com.vaults.app.R
@@ -49,13 +50,12 @@ class GalleryActivity : AppCompatActivity() {
 
     private fun setupUI(gallery: com.vaults.app.db.Gallery) {
         binding.title.text = gallery.name
-
         setupToolbar(gallery.type, gallery.columnCount, gallery.loadMode, gallery.viewMode)
 
-        if (gallery.type == GalleryType.FOLDER) {
-            setupFolderView(gallery.id)
-        } else {
-            setupMediaView(gallery)
+        when {
+            gallery.type == GalleryType.FOLDER -> setupFolderView(gallery.id)
+            gallery.viewMode == ViewMode.SWIPE -> setupSwipeView(gallery)
+            else -> setupMediaView(gallery)
         }
     }
 
@@ -78,13 +78,14 @@ class GalleryActivity : AppCompatActivity() {
     }
 
     private fun setupMediaView(gallery: com.vaults.app.db.Gallery) {
+        binding.viewPager.visibility = View.GONE
         binding.mediaRecycler.visibility = View.VISIBLE
-        binding.subGalleryRecycler.visibility = View.GONE
 
         mediaAdapter = MediaAdapter(
             galleryType = gallery.type,
             onItemClick = { item ->
-                openPlayer(item.resolvedUrl, item.embedUrl != null, gallery.type)
+                val url = item.resolvedUrl ?: item.thumbnailPath
+                openPlayer(url, item.embedUrl != null, gallery.type)
             },
             onItemDelete = { item ->
                 lifecycleScope.launch {
@@ -96,7 +97,34 @@ class GalleryActivity : AppCompatActivity() {
 
         binding.mediaRecycler.layoutManager = GridLayoutManager(this, gallery.columnCount)
         binding.mediaRecycler.adapter = mediaAdapter
+        viewModel.loadGallery(galleryId)
 
+        lifecycleScope.launch {
+            viewModel.resolvedItems.collect { items ->
+                mediaAdapter.submitList(items.toList())
+            }
+        }
+    }
+
+    private fun setupSwipeView(gallery: com.vaults.app.db.Gallery) {
+        binding.mediaRecycler.visibility = View.GONE
+        binding.viewPager.visibility = View.VISIBLE
+
+        mediaAdapter = MediaAdapter(
+            galleryType = gallery.type,
+            onItemClick = { item ->
+                val url = item.resolvedUrl ?: item.thumbnailPath
+                openPlayer(url, item.embedUrl != null, gallery.type)
+            },
+            onItemDelete = { item ->
+                lifecycleScope.launch {
+                    viewModel.deleteItem(item.id)
+                    viewModel.loadGallery(galleryId)
+                }
+            }
+        )
+
+        binding.viewPager.adapter = mediaAdapter
         viewModel.loadGallery(galleryId)
 
         lifecycleScope.launch {
@@ -107,29 +135,29 @@ class GalleryActivity : AppCompatActivity() {
     }
 
     private fun setupFolderView(parentId: Long) {
-        binding.mediaRecycler.visibility = View.GONE
-        binding.subGalleryRecycler.visibility = View.VISIBLE
+        binding.viewPager.visibility = View.GONE
+        binding.mediaRecycler.visibility = View.VISIBLE
 
         galleryListAdapter = GalleryListAdapter(
             onItemClick = { gallery -> openGallery(gallery) },
             onItemRename = { gallery -> showRenameDialog(gallery) },
             onItemDelete = { gallery -> showDeleteDialog(gallery) },
-            onItemMove = { from, to -> 
-                lifecycleScope.launch { 
-                    viewModel.reorderGalleries(listOf(from, to)) 
-                } 
+            onItemMove = { from, to ->
+                lifecycleScope.launch {
+                    viewModel.reorderGalleries(listOf(from, to))
+                }
             }
         )
 
-        binding.subGalleryRecycler.layoutManager = GridLayoutManager(this, 2)
-        binding.subGalleryRecycler.adapter = galleryListAdapter
+        binding.mediaRecycler.layoutManager = GridLayoutManager(this, 2)
+        binding.mediaRecycler.adapter = galleryListAdapter
 
         viewModel.loadChildGalleries(parentId).observe(this) { galleries ->
             galleryListAdapter.submitList(galleries)
         }
 
         val touchHelper = ItemTouchHelper(galleryListAdapter.getTouchHelperCallback())
-        touchHelper.attachToRecyclerView(binding.subGalleryRecycler)
+        touchHelper.attachToRecyclerView(binding.mediaRecycler)
     }
 
     private fun showAddItemsDialog() {
@@ -236,7 +264,7 @@ class GalleryActivity : AppCompatActivity() {
                 val columns = slider.value.toInt()
                 val loadMode = if (lazySwitch.isChecked) LoadMode.ALL else LoadMode.LAZY
                 val viewMode = if (swipeSwitch.isChecked) ViewMode.SWIPE else ViewMode.GRID
-                
+
                 lifecycleScope.launch {
                     viewModel.updateGallerySettings(galleryId, columns, loadMode, viewMode)
                     recreate()
@@ -255,7 +283,7 @@ class GalleryActivity : AppCompatActivity() {
 
     private fun openPlayer(url: String?, isEmbed: Boolean, type: GalleryType) {
         if (url == null) return
-        
+
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra("url", url)
             putExtra("is_embed", isEmbed)
