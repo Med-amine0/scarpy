@@ -20,18 +20,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        run: |
-          cd /tmp
-          wget -q https://services.gradle.org/distributions/gradle-8.3-bin.zip
-          unzip -q gradle-8.3-bin.zip
-          sudo mv gradle-8.3 /opt/gradle
-          echo "/opt/gradle/bin" >> $GITHUB_PATH
-
       - name: Build with Gradle
         run: |
-          cd app
-          ../gradlew assembleDebug --no-daemon
+          gradle assembleDebug -p app
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
