@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vaults</string>
+    <string name="pin_subtitle">Enter your PIN</string>
+    <string name="pin_setup">Create a 4-digit PIN</string>
+    <string name="pin_confirm">Confirm your PIN</string>
+    <string name="wrong_pin">Wrong PIN, try again</string>
+    <string name="pin_mismatch">PINs do not match</string>
+    <string name="create_gallery">Create Gallery</string>
+    <string name="gallery_name">Gallery Name</string>
+    <string name="select_type">Select Type</string>
+    <string name="add_items">Add Items</string>
+    <string name="paste_urls">Paste URLs or IDs (one per line or comma separated)</string>
+    <string name="settings">Settings</string>
+    <string name="background_pattern">Background Pattern</string>
+    <string name="change_pin">Change PIN</string>
+    <string name="column_count">Columns: %d</string>
+    <string name="load_mode">Load Mode</string>
+    <string name="load_all">Load All</string>
+    <string name="load_lazy">Lazy Load</string>
+    <string name="swipe_mode">Swipe Mode</string>
+    <string name="delete">Delete</string>
+    <string name="rename">Rename</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="apply">Apply</string>
+    <string name="reset">Reset</string>
+    <string name="type_normal">Normal</string>
+    <string name="type_pornhub">PornHub</string>
+    <string name="type_redgif">RedGif</string>
+    <string name="type_folder">Folder</string>
+    <string name="close">Close</string>
+    <string name="edit_mode">Edit Mode</string>
+    <string name="loading">Loading…</string>
+    <string name="error_loading">Error loading</string>
+</resources>
