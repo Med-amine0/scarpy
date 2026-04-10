@@ -58,7 +58,7 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.github.bumptech.glide:glide:4.16.0")
-    ksp("com.github.bumptech.glide:ksp:4.16.0")
+    annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
 
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
