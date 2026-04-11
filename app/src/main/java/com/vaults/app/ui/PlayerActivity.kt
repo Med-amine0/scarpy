@@ -131,13 +131,13 @@ class PlayerActivity : AppCompatActivity() {
         binding.webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            useWideViewMode = true
+            useWideViewPort = true
             loadWithOverviewMode = true
             mediaPlaybackRequiresUserGesture = false
         }
 
         binding.webView.webChromeClient = WebChromeClient()
-        binding.webView.webViewClient = object : WebViewClient {}
+        binding.webView.webViewClient = object : WebViewClient() {}
 
         val html = """
             <!DOCTYPE html>
