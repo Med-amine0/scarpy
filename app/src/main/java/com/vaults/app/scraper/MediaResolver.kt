@@ -54,15 +54,26 @@ object MediaResolver {
     }
 
     private fun resolvePornhub(gifId: String): ResolvedMedia {
+        val cleanId = when {
+            gifId.contains("pornhub.com") -> gifId.substringAfterLast("/").substringBefore("?").takeWhile { it.isLetterOrDigit() }
+            else -> gifId.takeWhile { it.isLetterOrDigit() }
+        }
+        
+        if (cleanId.isBlank()) {
+            return ResolvedMedia(error = "Invalid PornHub ID")
+        }
+        
+        val embedUrl = "https://www.pornhub.com/embedgif/$cleanId"
+        
         return try {
-            val request = HttpClient.buildRequest("https://www.pornhub.com/embedgif/$gifId")
+            val request = HttpClient.buildRequest(embedUrl)
             val response = HttpClient.client.newCall(request).execute()
             
             if (!response.isSuccessful) {
-                return ResolvedMedia(error = "Failed to fetch")
+                return ResolvedMedia(embedUrl = embedUrl, isVideo = true)
             }
             
-            val body = response.body?.string() ?: return ResolvedMedia(error = "Empty response")
+            val body = response.body?.string() ?: return ResolvedMedia(embedUrl = embedUrl, isVideo = true)
             
             val webmRegex = Pattern.compile("""fileWebm\s*=\s*'([^']+)'""")
             val mp4Regex = Pattern.compile("""fileMp4\s*=\s*'([^']+)'""")
@@ -73,10 +84,10 @@ object MediaResolver {
             when {
                 webmMatch.find() -> ResolvedMedia(url = webmMatch.group(1), isVideo = true)
                 mp4Match.find() -> ResolvedMedia(url = mp4Match.group(1), isVideo = true)
-                else -> ResolvedMedia(error = "No video found")
+                else -> ResolvedMedia(embedUrl = embedUrl, isVideo = true)
             }
         } catch (e: Exception) {
-            ResolvedMedia(error = e.message)
+            ResolvedMedia(embedUrl = embedUrl, isVideo = true)
         }
     }
 
