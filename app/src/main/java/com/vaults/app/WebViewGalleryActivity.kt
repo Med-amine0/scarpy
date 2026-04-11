@@ -152,6 +152,21 @@ body { background: #000; }
   font-size: 24px;
   cursor: pointer;
 }
+.add-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  background: #ff69b4;
+  border-radius: 28px;
+  border: none;
+  color: #fff;
+  font-size: 28px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 100;
+}
 </style>
 </head>
 <body>
@@ -160,6 +175,7 @@ body { background: #000; }
   <button class="close-btn" onclick="closeFullscreen()">×</button>
   <div class="media-container" id="mediaContainer" onclick="rotate()"></div>
 </div>
+<button class="add-btn" onclick="Android.showAddDialog()">+</button>
 <script>
 var items = $itemsJson;
 var rotation = 0;
@@ -263,6 +279,55 @@ renderGrid();
         fun deleteItem(itemId: Long) {
             lifecycleScope.launch {
                 VaultsApp.instance.db.galleryItemDao().deleteById(itemId)
+                loadGalleryItems()
+            }
+        }
+
+        @JavascriptInterface
+        fun showAddDialog() {
+            val input = android.widget.EditText(context)
+            input.hint = "Enter URLs (comma or newline separated)"
+            input.setTextColor(android.graphics.Color.WHITE)
+            input.setBackgroundColor(android.graphics.Color.parseColor("#2a2a2a"))
+
+            android.app.AlertDialog.Builder(context)
+                .setTitle("Add Media")
+                .setView(input)
+                .setPositiveButton("Add") { _, _ ->
+                    val text = input.text.toString()
+                    if (text.isNotBlank()) {
+                        addItems(text)
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        private fun addItems(text: String) {
+            lifecycleScope.launch {
+                val values = text.replace("\"", "")
+                    .split(",", "\n", "\r\n")
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                val currentMax = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
+                        .maxOfOrNull { it.sortOrder } ?: -1
+                }
+
+                val items = values.mapIndexed { index, value ->
+                    GalleryItem(
+                        galleryId = galleryId,
+                        value = value,
+                        sortOrder = currentMax + index + 1
+                    )
+                }
+
+                withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().insertAll(items)
+                }
+
                 loadGalleryItems()
             }
         }
