@@ -14,8 +14,6 @@ import com.vaults.app.databinding.ActivityWebviewGalleryBinding
 import com.vaults.app.db.GalleryItem
 import com.vaults.app.db.GalleryType
 import com.vaults.app.scraper.MediaResolver
-import com.vaults.app.scraper.ResolvedMedia
-import com.vaults.app.scraper.ResolvedMedia
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -95,10 +93,8 @@ class WebViewGalleryActivity : AppCompatActivity() {
 
             // Resolve each item using MediaResolver
             val resolvedItems = rawItems.map { item ->
-                val result = withContext(Dispatchers.IO) {
-                    MediaResolver.resolve(type, item.value)
-                }
-                ResolvedMedia(
+                val result = MediaResolver.resolve(type, item.value)
+                ItemWithMedia(
                     id = item.id,
                     value = item.value,
                     url = result.url,
@@ -128,7 +124,7 @@ body { background: #000; display: flex; justify-content: center; align-items: ce
 </html>
     """.trimIndent()
 
-    private fun loadThumbnailGrid(items: List<ResolvedMedia>) {
+    private fun loadThumbnailGrid(items: List<ItemWithMedia>) {
         val itemsJson = JSONArray()
         items.forEach { item ->
             val html = when {
@@ -379,3 +375,12 @@ renderGrid();
         }
     }
 }
+
+data class ItemWithMedia(
+    val id: Long,
+    val value: String,
+    val url: String?,
+    val embedUrl: String?,
+    val isVideo: Boolean,
+    val error: String?
+)
