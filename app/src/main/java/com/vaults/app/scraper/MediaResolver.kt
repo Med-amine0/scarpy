@@ -2,6 +2,7 @@ package com.vaults.app.scraper
 
 import com.vaults.app.db.GalleryType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -43,6 +44,10 @@ object MediaResolver {
                 GalleryType.FOLDER -> ResolvedMedia(null, error = "Invalid type")
             }
         }
+    }
+
+    fun resolveSync(galleryType: GalleryType, value: String): ResolvedMedia {
+        return runBlocking { resolve(galleryType, value) }
     }
 
     private fun resolveNormal(value: String): ResolvedMedia {

@@ -91,17 +91,31 @@ class WebViewGalleryActivity : AppCompatActivity() {
                 VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
             }
 
-            // Resolve each item using MediaResolver
-            val resolvedItems = rawItems.map { item ->
-                val result = MediaResolver.resolve(type, item.value)
-                ItemWithMedia(
-                    id = item.id,
-                    value = item.value,
-                    url = result.url,
-                    embedUrl = result.embedUrl,
-                    isVideo = result.isVideo,
-                    error = result.error
-                )
+            // Resolve each item using MediaResolver with error handling
+            val resolvedItems = withContext(Dispatchers.IO) {
+                rawItems.map { item ->
+                    try {
+                        val result = MediaResolver.resolveSync(type, item.value)
+                        ItemWithMedia(
+                            id = item.id,
+                            value = item.value,
+                            url = result.url,
+                            embedUrl = result.embedUrl,
+                            isVideo = result.isVideo,
+                            error = result.error
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("WebViewGallery", "Error resolving ${item.value}: ${e.message}")
+                        ItemWithMedia(
+                            id = item.id,
+                            value = item.value,
+                            url = null,
+                            embedUrl = null,
+                            isVideo = false,
+                            error = e.message
+                        )
+                    }
+                }
             }
 
             // Render HTML with resolved data
@@ -261,6 +275,12 @@ body { background: #000; }
 var items = $itemsJson;
 var rotation = 0;
 
+console.log('Items loaded: ' + items.length);
+items.forEach(function(item, i) {
+    var type = item.isVideo ? 'video' : 'image';
+    console.log('Item ' + i + ': ' + type + ' - ' + (item.html ? 'has HTML' : 'NO HTML'));
+});
+
 function renderGrid() {
   var grid = document.getElementById('grid');
   grid.innerHTML = '';
@@ -318,6 +338,11 @@ renderGrid();
         }
 
         @JavascriptInterface
+        fun goBack() {
+            finish()
+        }
+
+        @JavascriptInterface
         fun showAddDialog() {
             val input = android.widget.EditText(context)
             input.hint = "Enter URLs (comma or newline separated)"
@@ -368,9 +393,13 @@ renderGrid();
     }
 
     override fun onBackPressed() {
-        if (binding.webView.canGoBack()) {
-            binding.webView.goBack()
-        } else {
+        // Try to close fullscreen first, otherwise go back
+        binding.webView.evaluateJavascript(
+            "if(document.getElementById('fullscreen').classList.contains('active')) { closeFullscreen(); }",
+            null
+        )
+        // Fallback: just finish
+        if (!binding.webView.canGoBack()) {
             super.onBackPressed()
         }
     }
