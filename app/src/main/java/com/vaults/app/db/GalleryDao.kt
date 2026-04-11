@@ -64,7 +64,4 @@ interface GalleryItemDao {
 
     @Query("UPDATE gallery_items SET sortOrder = :sortOrder WHERE id = :id")
     suspend fun updateSortOrder(id: Long, sortOrder: Int)
-
-    @Query("UPDATE gallery_items SET thumbnailPath = :path WHERE id = :id")
-    suspend fun updateThumbnailPath(id: Long, path: String?)
 }
