@@ -1,22 +1,20 @@
 package com.vaults.app.ui
 
 import android.annotation.SuppressLint
-import android.content.Intent
 import android.os.Bundle
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
 import com.bumptech.glide.Glide
 import com.vaults.app.R
@@ -27,7 +25,8 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var binding: ActivityPlayerBinding
     private var player: ExoPlayer? = null
     private var currentRotation = 0
-    private var isPlaying = false
+    private var videoWidth = 0
+    private var videoHeight = 0
     
     private val url: String by lazy { intent.getStringExtra("url") ?: "" }
     private val isEmbed: Boolean by lazy { intent.getBooleanExtra("is_embed", false) }
@@ -63,61 +62,60 @@ class PlayerActivity : AppCompatActivity() {
     private fun setupTapToRotate() {
         binding.mediaContainer.setOnClickListener {
             currentRotation = (currentRotation + 90) % 360
-            updateRotation()
-        }
-    }
-
-    private fun updateRotation() {
-        binding.mediaContainer.rotation = currentRotation.toFloat()
-        
-        val targetWidth: Int
-        val targetHeight: Int
-        
-        when (currentRotation) {
-            90, 270 -> {
-                binding.mediaContainer.post {
-                    binding.mediaContainer.layoutParams = binding.mediaContainer.layoutParams.apply {
-                        if (this is FrameLayout.LayoutParams) {
-                            width = binding.root.height
-                            height = binding.root.width
-                        }
-                    }
-                }
-            }
-        }
-        
-        fitToScreen()
-    }
-
-    private fun fitToScreen() {
-        binding.mediaContainer.post {
-            val parent = binding.root
-            val container = binding.mediaContainer
             
-            when (currentRotation) {
-                0, 180 -> {
-                    val scale = minOf(
-                        parent.width.toFloat() / (container.width.takeIf { it > 0 } ?: 1),
-                        parent.height.toFloat() / (container.height.takeIf { it > 0 } ?: 1)
-                    )
-                    container.scaleX = scale
-                    container.scaleY = scale
+            if (player != null) {
+                player?.videoSize = VideoSize.UNKNOWN
+                player?.setVideoRotation(currentRotation.toFloat())
+            } else {
+                binding.imageView.rotation = currentRotation.toFloat()
+            }
+            
+            fitToScreenCentered()
+        }
+    }
+
+    private fun fitToScreenCentered() {
+        binding.mediaContainer.post {
+            val parentWidth = binding.root.width
+            val parentHeight = binding.root.height
+            
+            val isRotated = currentRotation == 90 || currentRotation == 270
+            
+            val containerWidth: Int
+            val containerHeight: Int
+            
+            if (isRotated) {
+                if (videoWidth > 0 && videoHeight > 0) {
+                    val aspectRatio = videoHeight.toFloat() / videoWidth
+                    containerWidth = (parentHeight / aspectRatio).toInt().coerceAtMost(parentWidth)
+                    containerHeight = parentHeight
+                } else {
+                    containerWidth = parentWidth
+                    containerHeight = parentHeight
                 }
-                90, 270 -> {
-                    val scale = minOf(
-                        parent.width.toFloat() / (container.height.takeIf { it > 0 } ?: 1),
-                        parent.height.toFloat() / (container.width.takeIf { it > 0 } ?: 1)
-                    )
-                    container.scaleX = scale
-                    container.scaleY = scale
+            } else {
+                if (videoWidth > 0 && videoHeight > 0) {
+                    val aspectRatio = videoWidth.toFloat() / videoHeight
+                    containerWidth = parentWidth
+                    containerHeight = (parentWidth / aspectRatio).toInt().coerceAtMost(parentHeight)
+                } else {
+                    containerWidth = parentWidth
+                    containerHeight = parentHeight
                 }
             }
+            
+            val layoutParams = binding.mediaContainer.layoutParams
+            layoutParams.width = containerWidth
+            layoutParams.height = containerHeight
+            binding.mediaContainer.layoutParams = layoutParams
         }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupMedia() {
-        val isVideo = url.endsWith(".mp4") || url.endsWith(".webm") || url.contains("media") || galleryType == GalleryType.PORNHUB
+        val isVideo = url.endsWith(".mp4") || url.endsWith(".webm") || 
+                url.contains(".mp4") || url.contains(".webm") || 
+                galleryType == GalleryType.PORNHUB || galleryType == GalleryType.REDGIF
         val isImage = !isVideo && !isEmbed
 
         when {
@@ -141,11 +139,7 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         binding.webView.webChromeClient = WebChromeClient()
-        binding.webView.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-            }
-        }
+        binding.webView.webViewClient = object : WebViewClient() {}
 
         val html = """
             <!DOCTYPE html>
@@ -165,6 +159,7 @@ class PlayerActivity : AppCompatActivity() {
         """.trimIndent()
 
         binding.webView.loadDataWithBaseURL(url, html, "text/html", "UTF-8", null)
+        fitToScreenCentered()
     }
 
     private fun setupExoPlayer() {
@@ -179,12 +174,19 @@ class PlayerActivity : AppCompatActivity() {
             volume = 0f
             playWhenReady = true
             prepare()
+            
+            addListener(object : androidx.media3.common.Player.Listener {
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    videoWidth = videoSize.width
+                    videoHeight = videoSize.height
+                    fitToScreenCentered()
+                }
+            })
         }
 
         binding.playerView.player = player
         binding.playerView.useController = false
-        
-        binding.playerView.post { fitToScreen() }
+        fitToScreenCentered()
     }
 
     private fun setupImage() {
@@ -196,7 +198,9 @@ class PlayerActivity : AppCompatActivity() {
             .load(url)
             .into(binding.imageView)
 
-        binding.imageView.post { fitToScreen() }
+        videoWidth = 1080
+        videoHeight = 1920
+        fitToScreenCentered()
     }
 
     override fun onResume() {
