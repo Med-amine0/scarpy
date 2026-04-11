@@ -83,20 +83,19 @@ object MediaResolver {
     private fun resolveRedgif(input: String): ResolvedMedia {
         val cleanId = when {
             input.contains("redgifs.com") -> {
-                val id = input.substringAfterLast("/")
+                input.substringAfterLast("/")
                     .substringBefore("?")
                     .substringBefore("-")
-                    .substringBeforeIfContains("#")
-                if (id.isBlank()) input.substringAfterLast("/").substringBefore("?").take(12) else id
+                    .take(12)
             }
             else -> input.substringAfterLast("/").substringBefore("?").take(12)
         }
         
+        val embedUrl = "https://redgifs.com/ifr/$cleanId"
+        
         return try {
             val request = HttpClient.buildRequest("https://api.redgifs.com/v2/gifs/$cleanId")
             val response = HttpClient.client.newCall(request).execute()
-            
-            val embedUrl = "https://redgifs.com/ifr/$cleanId"
             
             if (!response.isSuccessful) {
                 return ResolvedMedia(embedUrl = embedUrl, isVideo = true)
