@@ -68,11 +68,6 @@ class WebViewGalleryActivity : AppCompatActivity() {
                 android.util.Log.d("WebViewGallery", "Loading URL: $url")
                 return false
             }
-
-            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                super.onPageStarted(view, url, favicon)
-                android.util.Log.d("WebViewGallery", "Page started: $url")
-            }
         }
         binding.webView.addJavascriptInterface(Bridge(this), "Android")
     }
