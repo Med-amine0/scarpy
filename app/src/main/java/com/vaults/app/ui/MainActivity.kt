@@ -17,6 +17,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.vaults.app.R
 import com.vaults.app.VaultsApp
+import com.vaults.app.WebViewGalleryActivity
 import com.vaults.app.databinding.ActivityMainBinding
 import com.vaults.app.db.Gallery
 import com.vaults.app.db.GalleryType
@@ -42,7 +43,6 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        binding.recycler.visibility = View.GONE
         binding.webView.visibility = View.VISIBLE
         binding.backgroundView.visibility = View.GONE
 
