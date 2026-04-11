@@ -86,40 +86,22 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
             galleryType = type
 
-            // Get raw items from DB
-            val rawItems = withContext(Dispatchers.IO) {
-                VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
-            }
-
-            // Resolve each item using MediaResolver with error handling
-            val resolvedItems = withContext(Dispatchers.IO) {
-                rawItems.map { item ->
-                    try {
-                        val result = MediaResolver.resolveSync(type, item.value)
-                        ItemWithMedia(
-                            id = item.id,
-                            value = item.value,
-                            url = result.url,
-                            embedUrl = result.embedUrl,
-                            isVideo = result.isVideo,
-                            error = result.error
-                        )
-                    } catch (e: Exception) {
-                        android.util.Log.e("WebViewGallery", "Error resolving ${item.value}: ${e.message}")
-                        ItemWithMedia(
-                            id = item.id,
-                            value = item.value,
-                            url = null,
-                            embedUrl = null,
-                            isVideo = false,
-                            error = e.message
-                        )
+            // Get raw items from DB - skip MediaResolver for faster loading
+            // Resolve on-demand in JavaScript
+            val itemsJson = JSONArray()
+            withContext(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId).forEach { item ->
+                    val obj = JSONObject().apply {
+                        put("id", item.id)
+                        put("value", item.value)
+                        put("type", type.name)
                     }
+                    itemsJson.put(obj)
                 }
             }
 
-            // Render HTML with resolved data
-            loadThumbnailGrid(resolvedItems)
+            // Render directly with raw values - JavaScript handles resolution
+            loadThumbnailGridFast(itemsJson.toString())
         }
     }
 
@@ -138,40 +120,9 @@ body { background: #000; display: flex; justify-content: center; align-items: ce
 </html>
     """.trimIndent()
 
-    private fun loadThumbnailGrid(items: List<ItemWithMedia>) {
-        val itemsJson = JSONArray()
-        items.forEach { item ->
-            val html = when {
-                // RedGif - iframe
-                item.embedUrl?.contains("redgifs.com") == true -> {
-                    val id = item.value.substringAfterLast("/").substringBefore("?").take(12)
-                    "<iframe src='https://www.redgifs.com/ifr/$id' frameborder='0' scrolling='no' allowfullscreen width='1080' height='1920' style='width:100%;height:100%;border:none;'></iframe>"
-                }
-                // PornHub - video element
-                item.embedUrl?.contains("pornhub.com") == true || (item.isVideo && item.url != null) -> {
-                    if (item.url != null) {
-                        "<video autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'><source src='${item.url}' type='video/webm'></video>"
-                    } else {
-                        // Fallback to embed if no resolved URL
-                        val id = item.value.replace(Regex("[^a-zA-Z0-9]"), "")
-                        "<iframe src='https://www.pornhub.com/embedgif/$id' style='width:100%;height:100%;border:none;' allowfullscreen></iframe>"
-                    }
-                }
-                // Normal image
-                else -> {
-                    val src = item.url ?: item.value
-                    "<img src='$src' style='width:100%;height:100%;object-fit:cover;'>"
-                }
-            }
-
-            val obj = JSONObject().apply {
-                put("id", item.id)
-                put("html", html)
-                put("isVideo", item.isVideo)
-            }
-            itemsJson.put(obj)
-        }
-
+    private fun loadThumbnailGridFast(itemsJson: String) {
+        val galleryType = this.galleryType.name
+        
         val html = """
 <!DOCTYPE html>
 <html>
@@ -180,6 +131,24 @@ body { background: #000; display: flex; justify-content: center; align-items: ce
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #000; }
+.toolbar {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: #1e1e1e;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.back-btn {
+  background: transparent;
+  border: none;
+  color: #ff69b4;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 8px;
+  margin-right: 12px;
+}
 .thumb-grid { 
   display: grid; 
   grid-template-columns: repeat(3, 1fr); 
@@ -194,7 +163,7 @@ body { background: #000; }
   background: #1a1a1a;
   cursor: pointer;
 }
-.thumb iframe, .thumb video, .thumb img {
+.thumb > div, .thumb iframe, .thumb video, .thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -222,7 +191,7 @@ body { background: #000; }
   transition: transform 0.3s;
   transform-origin: center;
 }
-.fullscreen-content iframe, .fullscreen-content video, .fullscreen-content img {
+.fullscreen-content > div, .fullscreen-content iframe, .fullscreen-content video, .fullscreen-content img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -265,6 +234,10 @@ body { background: #000; }
 </style>
 </head>
 <body>
+<div class="toolbar">
+  <button class="back-btn" onclick="Android.goBack()">←</button>
+  <span style="color:#ff69b4;font-size:18px;font-weight:bold;">Gallery</span>
+</div>
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
   <button class="close-btn" onclick="closeFullscreen()">×</button>
@@ -273,13 +246,25 @@ body { background: #000; }
 <button class="add-btn" onclick="Android.showAddDialog()">+</button>
 <script>
 var items = $itemsJson;
+var galleryType = '$galleryType';
 var rotation = 0;
 
-console.log('Items loaded: ' + items.length);
-items.forEach(function(item, i) {
-    var type = item.isVideo ? 'video' : 'image';
-    console.log('Item ' + i + ': ' + type + ' - ' + (item.html ? 'has HTML' : 'NO HTML'));
-});
+function getHtml(item) {
+  var value = item.value;
+  var type = galleryType;
+  
+  if (type === 'REDGIF') {
+    var id = value.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12);
+    return "<div style='position:relative; padding-bottom:177.78%'><iframe src='https://www.redgifs.com/ifr/" + id + "' frameBorder='0' scrolling='no' width='100%' height='100%' style='position:absolute; top:0; left:0;' allowFullScreen></iframe></div>";
+  } else if (type === 'PORNHUB') {
+    var id = value.replace(/[^a-zA-Z0-9]/g, '');
+    return "<iframe src='https://www.pornhub.com/embedgif/" + id + "' style='width:100%;height:100%;border:none;' allowfullscreen></iframe>";
+  } else if (value.match(/\.(mp4|webm)$/i)) {
+    return "<video src='" + value + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
+  } else {
+    return "<img src='" + value + "' style='width:100%;height:100%;object-fit:cover;' crossorigin='anonymous'>";
+  }
+}
 
 function renderGrid() {
   var grid = document.getElementById('grid');
@@ -293,7 +278,7 @@ function renderGrid() {
   items.forEach(function(item, index) {
     var thumb = document.createElement('div');
     thumb.className = 'thumb';
-    thumb.innerHTML = item.html;
+    thumb.innerHTML = getHtml(item);
     thumb.onclick = function() { openFullscreen(index); };
     grid.appendChild(thumb);
   });
@@ -305,7 +290,7 @@ function openFullscreen(index) {
   var fullscreen = document.getElementById('fullscreen');
   rotation = 0;
   content.style.transform = 'rotate(0deg)';
-  content.innerHTML = item.html;
+  content.innerHTML = getHtml(item);
   fullscreen.classList.add('active');
 }
 
