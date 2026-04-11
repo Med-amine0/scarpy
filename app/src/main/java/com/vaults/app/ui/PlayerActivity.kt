@@ -62,14 +62,7 @@ class PlayerActivity : AppCompatActivity() {
     private fun setupTapToRotate() {
         binding.mediaContainer.setOnClickListener {
             currentRotation = (currentRotation + 90) % 360
-            
-            if (player != null) {
-                player?.videoSize = VideoSize.UNKNOWN
-                player?.setVideoRotation(currentRotation.toFloat())
-            } else {
-                binding.imageView.rotation = currentRotation.toFloat()
-            }
-            
+            binding.mediaContainer.rotation = currentRotation.toFloat()
             fitToScreenCentered()
         }
     }
