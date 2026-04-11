@@ -208,8 +208,8 @@ function renderFolders() {
     div.onclick = function() { Android.openGallery(folder.id); };
     
     var icon = folder.type === 'FOLDER' ? '📁' : 
-               folder.type === 'PORNHUB' ? '🔞' : 
-               folder.type === 'REDGIF' ? '👹' : '🖼️';
+               folder.type === 'PORNHUB' ? '🎬' : 
+               folder.type === 'REDGIF' ? '🔥' : '🖼️';
     
     div.innerHTML = '<div class="folder-icon">' + icon + '</div>' +
                     '<div class="folder-name">' + folder.name + '</div>' +

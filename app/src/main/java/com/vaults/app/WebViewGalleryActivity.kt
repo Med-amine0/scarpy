@@ -48,11 +48,12 @@ class WebViewGalleryActivity : AppCompatActivity() {
             domStorageEnabled = true
             loadWithOverviewMode = true
             useWideViewPort = true
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             allowContentAccess = true
             allowFileAccess = true
             blockNetworkImage = false
             blockNetworkLoads = false
+            cacheMode = WebSettings.LOAD_NO_CACHE
         }
 
         binding.webView.webChromeClient = object : WebChromeClient() {
@@ -63,7 +64,14 @@ class WebViewGalleryActivity : AppCompatActivity() {
 
         binding.webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                // Allow all URLs including external ones
+                android.util.Log.d("WebViewGallery", "Loading URL: $url")
                 return false
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                android.util.Log.d("WebViewGallery", "Page started: $url")
             }
         }
         binding.webView.addJavascriptInterface(Bridge(this), "Android")
@@ -253,11 +261,27 @@ function getHtml(item) {
   var value = item.value;
   var type = galleryType;
   
+  console.log('getHtml: type=' + type + ', value=' + value);
+  
   if (type === 'REDGIF') {
-    var id = value.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12);
+    // Extract ID - handle both full URL and just ID
+    var id = value;
+    if (value.includes('redgifs.com')) {
+      id = value.split('/').pop().split('?')[0];
+    }
+    id = id.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12);
+    console.log('RedGif id: ' + id);
     return "<div style='position:relative; padding-bottom:177.78%'><iframe src='https://www.redgifs.com/ifr/" + id + "' frameBorder='0' scrolling='no' width='100%' height='100%' style='position:absolute; top:0; left:0;' allowFullScreen></iframe></div>";
   } else if (type === 'PORNHUB') {
-    var id = value.replace(/[^a-zA-Z0-9]/g, '');
+    // Extract ID - handle both full URL and just ID
+    var id = value;
+    if (value.includes('pornhub.com')) {
+      // Extract from URL like https://www.pornhub.com/embedgif/42528191
+      var parts = value.split('/');
+      id = parts[parts.length - 1].split('?')[0];
+    }
+    id = id.replace(/[^a-zA-Z0-9]/g, '');
+    console.log('PornHub id: ' + id);
     return "<iframe src='https://www.pornhub.com/embedgif/" + id + "' style='width:100%;height:100%;border:none;' allowfullscreen></iframe>";
   } else if (value.match(/\.(mp4|webm)$/i)) {
     return "<video src='" + value + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
