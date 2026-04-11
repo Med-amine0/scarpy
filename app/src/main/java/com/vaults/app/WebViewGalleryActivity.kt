@@ -50,9 +50,16 @@ class WebViewGalleryActivity : AppCompatActivity() {
             domStorageEnabled = true
             loadWithOverviewMode = true
             useWideViewPort = true
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            allowContentAccess = true
+            allowFileAccess = true
         }
         binding.webView.webChromeClient = WebChromeClient()
-        binding.webView.webViewClient = object : WebViewClient() {}
+        binding.webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                return false
+            }
+        }
         binding.webView.addJavascriptInterface(Bridge(this), "Android")
     }
 
@@ -102,6 +109,9 @@ body { background: #000; }
   border-radius: 8px; 
   overflow: hidden; 
   background: #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .thumb img, .thumb video { 
   width: 100%; 
@@ -115,6 +125,10 @@ body { background: #000; }
   transform: translate(-50%, -50%);
   width: 36px;
   height: 36px;
+}
+.loading {
+  color: #666;
+  font-size: 12px;
 }
 .fullscreen {
   position: fixed;
@@ -133,6 +147,7 @@ body { background: #000; }
   max-width: 100%;
   max-height: 100%;
   transition: transform 0.3s;
+  transform-origin: center;
 }
 .media-container img, .media-container video, .media-container iframe {
   max-width: 100%;
@@ -151,6 +166,7 @@ body { background: #000; }
   color: #fff;
   font-size: 24px;
   cursor: pointer;
+  z-index: 1001;
 }
 .add-btn {
   position: fixed;
@@ -177,13 +193,23 @@ body { background: #000; }
 </div>
 <button class="add-btn" onclick="Android.showAddDialog()">+</button>
 <script>
+console.log('Items: ' + $itemsJson);
 var items = $itemsJson;
 var rotation = 0;
 
 function renderGrid() {
+  console.log('Rendering ' + items.length + ' items');
   var grid = document.getElementById('grid');
   grid.innerHTML = '';
+  
+  if (items.length === 0) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#666;">No items yet. Tap + to add URLs.</div>';
+    return;
+  }
+  
   items.forEach(function(item, index) {
+    console.log('Item ' + index + ': ' + item.type + ' - ' + item.value);
+    
     var thumb = document.createElement('div');
     thumb.className = 'thumb';
     thumb.onclick = function() { openFullscreen(index); };
@@ -192,26 +218,30 @@ function renderGrid() {
     var value = item.value;
     
     if (mediaType === 'PORNHUB') {
-      var img = document.createElement('img');
       var id = value.replace(/[^a-zA-Z0-9]/g, '');
+      var img = document.createElement('img');
       img.src = 'https://thumb-videos1.pornhub.com/thumbs/' + id + '.jpg';
       img.onerror = function() { 
         this.style.display = 'none';
-        var play = document.createElement('img');
+        var play = document.createElement('span');
         play.className = 'play-icon';
-        play.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2ZmZiI+PHBhdGggZD0iTTEgMS41M3YxOWgyMnYtMTlIMXYtMS41M3pNNCA0djE2bDkgNS01IDV2LTEyTDE0IDR6Ii8+PC9zdmc+';
+        play.textContent = '▶';
+        play.style.color = '#fff';
+        play.style.fontSize = '24px';
         thumb.appendChild(play);
       };
       thumb.appendChild(img);
     } else if (mediaType === 'REDGIF') {
-      var img = document.createElement('img');
       var id = value.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12);
+      var img = document.createElement('img');
       img.src = 'https://thumbs.redgifs.com/' + id + '-poster.jpg';
       img.onerror = function() {
         this.style.display = 'none';
-        var play = document.createElement('img');
+        var play = document.createElement('span');
         play.className = 'play-icon';
-        play.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2ZmZiI+PHBhdGggZD0iTTEgMS41M3YxOWgyMnYtMTlIMXYtMS41M3pNNCA0djE2bDkgNS01IDV2LTEyTDE0IDR6Ii8+PC9zdmc+';
+        play.textContent = '▶';
+        play.style.color = '#fff';
+        play.style.fontSize = '24px';
         thumb.appendChild(play);
       };
       thumb.appendChild(img);
@@ -222,11 +252,21 @@ function renderGrid() {
       video.muted = true;
       video.loop = true;
       video.playsinline = true;
+      video.style.width = '100%';
+      video.style.height = '100%';
+      video.style.objectFit = 'cover';
       thumb.appendChild(video);
     } else {
       var img = document.createElement('img');
       img.src = value;
-      img.onerror = function() { this.style.display = 'none'; };
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      img.onerror = function() { 
+        console.log('Image load error: ' + value);
+        this.style.display = 'none'; 
+        this.parentElement.innerHTML = '<span style="color:#666;">⚠️</span>';
+      };
       thumb.appendChild(img);
     }
     grid.appendChild(thumb);
