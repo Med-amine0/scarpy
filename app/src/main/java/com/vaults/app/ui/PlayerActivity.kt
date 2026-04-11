@@ -32,6 +32,8 @@ class PlayerActivity : AppCompatActivity() {
     private val typeName: String by lazy { intent.getStringExtra("type") ?: GalleryType.NORMAL.name }
     private val galleryType: GalleryType by lazy { GalleryType.valueOf(typeName) }
 
+    private var currentContainer: View? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
@@ -61,14 +63,14 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun setupTapToRotate() {
-        binding.mediaContainer.setOnClickListener {
+        binding.root.setOnClickListener {
             currentRotation = (currentRotation + 90) % 360
             applyRotation()
         }
     }
 
     private fun applyRotation() {
-        val container = binding.mediaContainer
+        val container = currentContainer ?: return
         val parent = binding.root
         
         container.rotation = currentRotation.toFloat()
@@ -124,9 +126,10 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun setupWebView() {
-        binding.webView.visibility = View.VISIBLE
-        binding.playerView.visibility = View.GONE
-        binding.imageView.visibility = View.GONE
+        binding.webContainer.visibility = View.VISIBLE
+        binding.playerContainer.visibility = View.GONE
+        binding.imageContainer.visibility = View.GONE
+        currentContainer = binding.webContainer
 
         binding.webView.settings.apply {
             javaScriptEnabled = true
@@ -161,9 +164,10 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun setupExoPlayer() {
-        binding.playerView.visibility = View.VISIBLE
-        binding.webView.visibility = View.GONE
-        binding.imageView.visibility = View.GONE
+        binding.playerContainer.visibility = View.VISIBLE
+        binding.webContainer.visibility = View.GONE
+        binding.imageContainer.visibility = View.GONE
+        currentContainer = binding.playerContainer
 
         player = ExoPlayer.Builder(this).build().apply {
             val mediaItem = MediaItem.fromUri(url)
@@ -188,9 +192,10 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun setupImage() {
-        binding.imageView.visibility = View.VISIBLE
-        binding.playerView.visibility = View.GONE
-        binding.webView.visibility = View.GONE
+        binding.imageContainer.visibility = View.VISIBLE
+        binding.playerContainer.visibility = View.GONE
+        binding.webContainer.visibility = View.GONE
+        currentContainer = binding.imageContainer
 
         Glide.with(this)
             .load(url)

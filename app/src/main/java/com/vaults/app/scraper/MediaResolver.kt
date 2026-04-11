@@ -80,35 +80,45 @@ object MediaResolver {
         }
     }
 
-    private fun resolveRedgif(gifId: String): ResolvedMedia {
-        val cleanId = gifId.substringAfterLast("/").substringBefore("?")
+    private fun resolveRedgif(input: String): ResolvedMedia {
+        val cleanId = when {
+            input.contains("redgifs.com") -> {
+                val id = input.substringAfterLast("/")
+                    .substringBefore("?")
+                    .substringBefore("-")
+                    .substringBeforeIfContains("#")
+                if (id.isBlank()) input.substringAfterLast("/").substringBefore("?").take(12) else id
+            }
+            else -> input.substringAfterLast("/").substringBefore("?").take(12)
+        }
         
         return try {
             val request = HttpClient.buildRequest("https://api.redgifs.com/v2/gifs/$cleanId")
             val response = HttpClient.client.newCall(request).execute()
             
+            val embedUrl = "https://redgifs.com/ifr/$cleanId"
+            
             if (!response.isSuccessful) {
-                val embedUrl = "https://redgifs.com/ifr/$cleanId"
-                return ResolvedMedia(embedUrl = embedUrl)
+                return ResolvedMedia(embedUrl = embedUrl, isVideo = true)
             }
             
             val body = response.body?.string() ?: return ResolvedMedia(
-                embedUrl = "https://redgifs.com/ifr/$cleanId"
+                embedUrl = embedUrl, isVideo = true
             )
             
             val hdRegex = Pattern.compile(""""hd":\s*"([^"]+)"""").toRegex()
             val sdRegex = Pattern.compile(""""sd":\s*"([^"]+)"""").toRegex()
             
-            val hdUrl = hdRegex.find(body)?.groupValues?.get(1)
-            val sdUrl = sdRegex.find(body)?.groupValues?.get(1)
+            val hdUrl = hdRegex.find(body)?.groupValues?.getOrNull(1)
+            val sdUrl = sdRegex.find(body)?.groupValues?.getOrNull(1)
             
             when {
                 hdUrl != null -> ResolvedMedia(url = hdUrl, isVideo = true)
                 sdUrl != null -> ResolvedMedia(url = sdUrl, isVideo = true)
-                else -> ResolvedMedia(embedUrl = "https://redgifs.com/ifr/$cleanId")
+                else -> ResolvedMedia(embedUrl = embedUrl, isVideo = true)
             }
         } catch (e: Exception) {
-            ResolvedMedia(embedUrl = "https://redgifs.com/ifr/$cleanId")
+            ResolvedMedia(embedUrl = embedUrl, isVideo = true)
         }
     }
 }

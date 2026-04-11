@@ -4,6 +4,8 @@
     android:layout_width="match_parent"
     android:layout_height="180dp"
     android:layout_margin="4dp"
+    android:clipToOutline="true"
+    android:outlineProvider="background"
     app:cardBackgroundColor="@color/surface_variant"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
@@ -12,14 +14,14 @@
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipChildren="true">
+        android:layout_height="match_parent">
 
         <ImageView
             android:id="@+id/thumbnailView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:scaleType="centerCrop" />
+            android:scaleType="centerCrop"
+            android:clipToOutline="true" />
 
         <androidx.media3.ui.PlayerView
             android:id="@+id/playerView"
