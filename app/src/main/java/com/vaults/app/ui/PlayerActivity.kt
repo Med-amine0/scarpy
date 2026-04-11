@@ -14,12 +14,11 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
 import com.bumptech.glide.Glide
-import com.vaults.app.R
 import com.vaults.app.databinding.ActivityPlayerBinding
 import com.vaults.app.db.GalleryType
+import kotlin.math.min
 
 class PlayerActivity : AppCompatActivity() {
     private lateinit var binding: ActivityPlayerBinding
@@ -38,19 +37,21 @@ class PlayerActivity : AppCompatActivity() {
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        hideSystemUI()
+        setupFullscreen()
         setupCloseButton()
         setupTapToRotate()
         setupMedia()
     }
 
-    private fun hideSystemUI() {
+    private fun setupFullscreen() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        
         WindowInsetsControllerCompat(window, binding.root).let { controller ->
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
     }
 
     private fun setupCloseButton() {
@@ -62,45 +63,49 @@ class PlayerActivity : AppCompatActivity() {
     private fun setupTapToRotate() {
         binding.mediaContainer.setOnClickListener {
             currentRotation = (currentRotation + 90) % 360
-            binding.mediaContainer.rotation = currentRotation.toFloat()
-            fitToScreenCentered()
+            applyRotation()
         }
     }
 
-    private fun fitToScreenCentered() {
-        binding.mediaContainer.post {
-            val parentWidth = binding.root.width
-            val parentHeight = binding.root.height
+    private fun applyRotation() {
+        val container = binding.mediaContainer
+        val parent = binding.root
+        
+        container.rotation = currentRotation.toFloat()
+        
+        val isRotated = currentRotation == 90 || currentRotation == 270
+        
+        container.post {
+            val parentW = parent.width
+            val parentH = parent.height
             
-            val isRotated = currentRotation == 90 || currentRotation == 270
+            val mediaW: Float
+            val mediaH: Float
             
-            val containerWidth: Int
-            val containerHeight: Int
-            
-            if (isRotated) {
-                if (videoWidth > 0 && videoHeight > 0) {
-                    val aspectRatio = videoHeight.toFloat() / videoWidth
-                    containerWidth = (parentHeight / aspectRatio).toInt().coerceAtMost(parentWidth)
-                    containerHeight = parentHeight
-                } else {
-                    containerWidth = parentWidth
-                    containerHeight = parentHeight
-                }
+            if (videoWidth > 0 && videoHeight > 0) {
+                mediaW = videoWidth.toFloat()
+                mediaH = videoHeight.toFloat()
             } else {
-                if (videoWidth > 0 && videoHeight > 0) {
-                    val aspectRatio = videoWidth.toFloat() / videoHeight
-                    containerWidth = parentWidth
-                    containerHeight = (parentWidth / aspectRatio).toInt().coerceAtMost(parentHeight)
-                } else {
-                    containerWidth = parentWidth
-                    containerHeight = parentHeight
-                }
+                mediaW = 1080f
+                mediaH = 1920f
             }
             
-            val layoutParams = binding.mediaContainer.layoutParams
-            layoutParams.width = containerWidth
-            layoutParams.height = containerHeight
-            binding.mediaContainer.layoutParams = layoutParams
+            val targetW: Int
+            val targetH: Int
+            
+            if (isRotated) {
+                val aspectRatio = mediaW / mediaH
+                targetH = parentH
+                targetW = min(parentW, (parentH * aspectRatio).toInt())
+            } else {
+                val aspectRatio = mediaW / mediaH
+                targetW = parentW
+                targetH = min(parentH, (parentW / aspectRatio).toInt())
+            }
+            
+            container.layoutParams.width = targetW
+            container.layoutParams.height = targetH
+            container.requestLayout()
         }
     }
 
@@ -126,13 +131,13 @@ class PlayerActivity : AppCompatActivity() {
         binding.webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            useWideViewPort = true
+            useWideViewMode = true
             loadWithOverviewMode = true
             mediaPlaybackRequiresUserGesture = false
         }
 
         binding.webView.webChromeClient = WebChromeClient()
-        binding.webView.webViewClient = object : WebViewClient() {}
+        binding.webView.webViewClient = object : WebViewClient {}
 
         val html = """
             <!DOCTYPE html>
@@ -152,7 +157,7 @@ class PlayerActivity : AppCompatActivity() {
         """.trimIndent()
 
         binding.webView.loadDataWithBaseURL(url, html, "text/html", "UTF-8", null)
-        fitToScreenCentered()
+        applyRotation()
     }
 
     private fun setupExoPlayer() {
@@ -169,17 +174,17 @@ class PlayerActivity : AppCompatActivity() {
             prepare()
             
             addListener(object : androidx.media3.common.Player.Listener {
-                override fun onVideoSizeChanged(videoSize: VideoSize) {
-                    videoWidth = videoSize.width
-                    videoHeight = videoSize.height
-                    fitToScreenCentered()
+                override fun onVideoSizeChanged(size: androidx.media3.common.VideoSize) {
+                    videoWidth = size.width
+                    videoHeight = size.height
+                    applyRotation()
                 }
             })
         }
 
         binding.playerView.player = player
         binding.playerView.useController = false
-        fitToScreenCentered()
+        applyRotation()
     }
 
     private fun setupImage() {
@@ -193,7 +198,7 @@ class PlayerActivity : AppCompatActivity() {
 
         videoWidth = 1080
         videoHeight = 1920
-        fitToScreenCentered()
+        applyRotation()
     }
 
     override fun onResume() {

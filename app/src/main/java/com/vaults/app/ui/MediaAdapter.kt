@@ -25,7 +25,7 @@ class MediaAdapter(
 ) : ListAdapter<MediaItemState, MediaAdapter.ViewHolder>(DiffCallback()) {
 
     private val playerPool = mutableListOf<ExoPlayer>()
-    private val activePlayers = mutableMapOf<Int, ExoPlayer>()
+    private val activePlayers = mutableMapOf<Long, ExoPlayer>()
     private var context: Context? = null
 
     fun initPool(ctx: Context) {
@@ -35,7 +35,6 @@ class MediaAdapter(
                 val player = ExoPlayer.Builder(ctx).build().apply {
                     repeatMode = Player.REPEAT_MODE_ONE
                     volume = 0f
-                    playWhenReady = true
                 }
                 playerPool.add(player)
             }
@@ -50,12 +49,12 @@ class MediaAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(getItem(position), position)
+        holder.bind(getItem(position))
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
         super.onViewRecycled(holder)
-        holder.onRecycled()
+        holder.pausePlayer()
     }
 
     inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -66,11 +65,11 @@ class MediaAdapter(
         private val errorIcon: ImageView = itemView.findViewById(R.id.errorIcon)
         private val btnDelete: ImageButton = itemView.findViewById(R.id.btnDelete)
 
-        private var currentPosition: Int = -1
+        private var currentItem: MediaItemState? = null
         private var currentPlayer: ExoPlayer? = null
 
-        fun bind(item: MediaItemState, position: Int) {
-            currentPosition = position
+        fun bind(item: MediaItemState) {
+            currentItem = item
 
             when {
                 item.isLoading -> showLoading()
@@ -93,7 +92,7 @@ class MediaAdapter(
             playerView.visibility = View.GONE
             playIcon.visibility = View.GONE
             errorIcon.visibility = View.GONE
-            releasePlayer()
+            pausePlayer()
         }
 
         private fun showError() {
@@ -102,7 +101,7 @@ class MediaAdapter(
             playerView.visibility = View.GONE
             playIcon.visibility = View.GONE
             errorIcon.visibility = View.VISIBLE
-            releasePlayer()
+            pausePlayer()
         }
 
         private fun showMedia(item: MediaItemState) {
@@ -110,24 +109,33 @@ class MediaAdapter(
             val embedUrl = item.embedUrl
 
             when {
-                item.isVideo && videoUrl != null -> showVideo(videoUrl)
+                item.isVideo && videoUrl != null -> showVideo(videoUrl, item.id)
                 embedUrl != null -> showEmbed(embedUrl)
                 else -> showImage(item.url ?: item.value)
             }
         }
 
-        private fun showVideo(url: String) {
+        private fun showVideo(url: String, itemId: Long) {
             progressBar.visibility = View.GONE
             imageView.visibility = View.GONE
             playerView.visibility = View.VISIBLE
             playIcon.visibility = View.GONE
             errorIcon.visibility = View.GONE
 
-            releasePlayer()
+            if (currentPlayer != null) {
+                playerView.player = currentPlayer
+                currentPlayer?.play()
+                return
+            }
 
-            if (playerPool.isNotEmpty()) {
+            val existingPlayer = activePlayers[itemId]
+            if (existingPlayer != null) {
+                currentPlayer = existingPlayer
+                playerView.player = currentPlayer
+                currentPlayer?.play()
+            } else if (playerPool.isNotEmpty()) {
                 currentPlayer = playerPool.removeAt(0)
-                activePlayers[currentPosition] = currentPlayer!!
+                activePlayers[itemId] = currentPlayer!!
 
                 currentPlayer!!.setMediaItem(MediaItem.fromUri(url))
                 currentPlayer!!.prepare()
@@ -143,7 +151,7 @@ class MediaAdapter(
             playerView.visibility = View.GONE
             playIcon.visibility = View.VISIBLE
             errorIcon.visibility = View.GONE
-            releasePlayer()
+            pausePlayer()
 
             val gifId = embedUrl.substringAfterLast("/")
             Glide.with(itemView.context)
@@ -158,7 +166,7 @@ class MediaAdapter(
             playerView.visibility = View.GONE
             playIcon.visibility = View.GONE
             errorIcon.visibility = View.GONE
-            releasePlayer()
+            pausePlayer()
 
             if (url.startsWith("http")) {
                 Glide.with(itemView.context)
@@ -170,18 +178,12 @@ class MediaAdapter(
             }
         }
 
-        private fun releasePlayer() {
+        fun pausePlayer() {
             currentPlayer?.let { player ->
                 player.pause()
-                playerPool.add(player)
-                activePlayers.remove(currentPosition)
-                currentPlayer = null
             }
             playerView.player = null
-        }
-
-        fun onRecycled() {
-            releasePlayer()
+            currentPlayer = null
         }
     }
 
