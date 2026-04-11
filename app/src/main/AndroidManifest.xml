@@ -24,14 +24,9 @@
         </activity>
 
         <activity
-            android:name=".ui.GalleryActivity"
+            android:name=".WebViewGalleryActivity"
             android:exported="false"
             android:theme="@style/Theme.Vaults" />
-
-        <activity
-            android:name=".ui.PlayerActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Vaults.Fullscreen" />
 
         <activity
             android:name=".ui.SettingsActivity"
