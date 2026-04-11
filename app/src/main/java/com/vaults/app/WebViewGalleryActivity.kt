@@ -53,11 +53,24 @@ class WebViewGalleryActivity : AppCompatActivity() {
             mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             allowContentAccess = true
             allowFileAccess = true
+            blockNetworkImage = false
+            blockNetworkLoads = false
         }
-        binding.webView.webChromeClient = WebChromeClient()
+        
+        binding.webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(msg: String, lineNumber: Int, sourceID: String) {
+                android.util.Log.d("WebViewGallery", "JS: $msg")
+            }
+        }
+        
         binding.webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 return false
+            }
+            
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                android.util.Log.d("WebViewGallery", "Page loaded")
             }
         }
         binding.webView.addJavascriptInterface(Bridge(this), "Android")

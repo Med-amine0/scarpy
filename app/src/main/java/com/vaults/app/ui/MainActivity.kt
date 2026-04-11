@@ -51,8 +51,19 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             loadWithOverviewMode = true
             useWideViewPort = true
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            allowContentAccess = true
+            allowFileAccess = true
+            blockNetworkImage = false
+            blockNetworkLoads = false
         }
-        binding.webView.webChromeClient = WebChromeClient()
+        
+        binding.webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(msg: String, lineNumber: Int, sourceID: String) {
+                android.util.Log.d("MainActivity", "JS: $msg")
+            }
+        }
+        
         binding.webView.webViewClient = object : WebViewClient() {}
         binding.webView.addJavascriptInterface(MainBridge(this), "Android")
 
