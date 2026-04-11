@@ -7,9 +7,9 @@
 
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
-        android:layout_height="160dp"
+        android:layout_height="180dp"
         app:cardBackgroundColor="@color/surface_variant"
-        app:cardCornerRadius="12dp"
+        app:cardCornerRadius="8dp"
         app:cardElevation="0dp"
         app:strokeWidth="0dp">
 
@@ -41,26 +41,26 @@
 
             <ImageView
                 android:id="@+id/playIcon"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_play"
                 android:visibility="gone" />
 
             <ImageView
                 android:id="@+id/errorIcon"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_error"
                 android:visibility="gone" />
 
             <ImageButton
                 android:id="@+id/btnDelete"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
                 android:layout_gravity="top|end"
-                android:layout_margin="8dp"
+                android:layout_margin="6dp"
                 android:src="@drawable/ic_close"
                 android:background="@drawable/bg_pin_button"
                 android:visibility="gone" />

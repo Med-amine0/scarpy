@@ -8,8 +8,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
-import androidx.recyclerview.widget.RecyclerView
-import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.slider.Slider
 import com.vaults.app.R
@@ -84,7 +82,7 @@ class GalleryActivity : AppCompatActivity() {
         mediaAdapter = MediaAdapter(
             galleryType = gallery.type,
             onItemClick = { item ->
-                val url = item.resolvedUrl ?: item.thumbnailPath
+                val url = item.url ?: item.embedUrl
                 openPlayer(url, item.embedUrl != null, gallery.type)
             },
             onItemDelete = { item ->
@@ -100,7 +98,7 @@ class GalleryActivity : AppCompatActivity() {
         viewModel.loadGallery(galleryId)
 
         lifecycleScope.launch {
-            viewModel.resolvedItems.collect { items ->
+            viewModel.mediaItems.collect { items ->
                 mediaAdapter.submitList(items.toList())
             }
         }
@@ -113,7 +111,7 @@ class GalleryActivity : AppCompatActivity() {
         mediaAdapter = MediaAdapter(
             galleryType = gallery.type,
             onItemClick = { item ->
-                val url = item.resolvedUrl ?: item.thumbnailPath
+                val url = item.url ?: item.embedUrl
                 openPlayer(url, item.embedUrl != null, gallery.type)
             },
             onItemDelete = { item ->
@@ -128,7 +126,7 @@ class GalleryActivity : AppCompatActivity() {
         viewModel.loadGallery(galleryId)
 
         lifecycleScope.launch {
-            viewModel.resolvedItems.collect { items ->
+            viewModel.mediaItems.collect { items ->
                 mediaAdapter.submitList(items.toList())
             }
         }
@@ -290,5 +288,12 @@ class GalleryActivity : AppCompatActivity() {
             putExtra("type", type.name)
         }
         startActivity(intent)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::mediaAdapter.isInitialized) {
+            mediaAdapter.releaseAllPlayers()
+        }
     }
 }

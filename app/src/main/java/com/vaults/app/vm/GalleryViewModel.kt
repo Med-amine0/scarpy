@@ -11,19 +11,39 @@ import com.vaults.app.db.GalleryItem
 import com.vaults.app.db.GalleryType
 import com.vaults.app.db.LoadMode
 import com.vaults.app.db.ViewMode
-import com.vaults.app.scraper.PHScraper
-import com.vaults.app.scraper.RedGifScraper
-import com.vaults.app.scraper.ThumbnailDownloader
 import com.vaults.app.scraper.InputParser
+import com.vaults.app.scraper.MediaResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+data class MediaItemState(
+    val id: Long,
+    val value: String,
+    val sortOrder: Int,
+    val url: String? = null,
+    val embedUrl: String? = null,
+    val isVideo: Boolean = false,
+    val isLoading: Boolean = true,
+    val error: String? = null
+) {
+    companion object {
+        fun fromGalleryItem(item: GalleryItem) = MediaItemState(
+            id = item.id,
+            value = item.value,
+            sortOrder = item.sortOrder,
+            isLoading = true
+        )
+    }
+}
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = VaultsApp.instance.db.galleryDao()
     private val itemDao = VaultsApp.instance.db.galleryItemDao()
+    private val resolver = MediaResolver()
 
     private val _rootGalleries = MutableLiveData<List<Gallery>>()
     val rootGalleries: LiveData<List<Gallery>> = _rootGalleries
@@ -31,14 +51,10 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val _currentGallery = MutableLiveData<Gallery?>()
     val currentGallery: LiveData<Gallery?> = _currentGallery
 
-    private val _resolvedItems = MutableStateFlow<List<ResolvedItem>>(emptyList())
-    val resolvedItems: StateFlow<List<ResolvedItem>> = _resolvedItems
-
-    private val _editMode = MutableLiveData(false)
-    val editMode: LiveData<Boolean> = _editMode
+    private val _mediaItems = MutableStateFlow<List<MediaItemState>>(emptyList())
+    val mediaItems: StateFlow<List<MediaItemState>> = _mediaItems.asStateFlow()
 
     private var currentGalleryType: GalleryType = GalleryType.NORMAL
-    private var currentLoadMode: LoadMode = LoadMode.LAZY
 
     init {
         viewModelScope.launch {
@@ -63,88 +79,37 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     fun setCurrentGallery(gallery: Gallery) {
         _currentGallery.value = gallery
         currentGalleryType = gallery.type
-        currentLoadMode = gallery.loadMode
     }
 
     fun loadGallery(galleryId: Long) {
         viewModelScope.launch {
             val items = itemDao.getItemsOnce(galleryId)
-            val resolved = items.map { ResolvedItem(it) }
-            _resolvedItems.value = resolved
+            val states = items.map { MediaItemState.fromGalleryItem(it) }
+            _mediaItems.value = states
 
-            if (currentLoadMode == LoadMode.ALL) {
-                resolveAllItems(galleryId)
-            }
+            resolveAllItems(states, galleryId)
         }
     }
 
-    private suspend fun resolveAllItems(galleryId: Long) {
-        val items = _resolvedItems.value.toMutableList()
-        
-        items.forEachIndexed { index, item ->
-            if (!item.isLoading && item.resolvedUrl == null) {
-                items[index] = item.copy(isLoading = true)
-                _resolvedItems.value = items.toList()
+    private suspend fun resolveAllItems(items: List<MediaItemState>, galleryId: Long) {
+        items.forEach { item ->
+            if (item.isLoading && item.error == null) {
+                val result = resolver.resolve(currentGalleryType, item.value)
                 
-                resolveSingleItem(items[index], galleryId)
+                val currentList = _mediaItems.value.toMutableList()
+                val index = currentList.indexOfFirst { it.id == item.id }
+                if (index != -1) {
+                    currentList[index] = item.copy(
+                        url = result.url,
+                        embedUrl = result.embedUrl,
+                        isVideo = result.isVideo,
+                        isLoading = false,
+                        error = result.error
+                    )
+                    _mediaItems.value = currentList
+                }
             }
         }
-    }
-
-    fun resolveItem(item: ResolvedItem) {
-        viewModelScope.launch {
-            resolveSingleItem(item, item.galleryId)
-        }
-    }
-
-    private suspend fun resolveSingleItem(item: ResolvedItem, galleryId: Long) {
-        val items = _resolvedItems.value.toMutableList()
-        val index = items.indexOfFirst { it.id == item.id }
-        if (index == -1) return
-
-        items[index] = item.copy(isLoading = true)
-        _resolvedItems.value = items.toList()
-
-        when (currentGalleryType) {
-            GalleryType.PORNHUB -> {
-                val phResult = PHScraper.getFreshUrl(item.value)
-                items[index] = items[index].copy(
-                    resolvedUrl = phResult?.bestUrl(),
-                    isLoading = false,
-                    error = if (phResult == null) "Failed to load" else null
-                )
-                _resolvedItems.value = items.toList()
-                return
-            }
-            GalleryType.REDGIF -> {
-                val rgResult = RedGifScraper.getDirectUrl(item.value)
-                items[index] = items[index].copy(
-                    resolvedUrl = rgResult.bestUrl(),
-                    embedUrl = rgResult.embedUrl,
-                    isLoading = false,
-                    error = null
-                )
-                _resolvedItems.value = items.toList()
-                return
-            }
-            else -> {
-                items[index] = items[index].copy(
-                    resolvedUrl = item.value,
-                    isLoading = false
-                )
-                _resolvedItems.value = items.toList()
-            }
-        }
-    }
-
-    suspend fun createGallery(name: String, type: GalleryType, parentId: Long? = null): Long = withContext(Dispatchers.IO) {
-        val gallery = Gallery(
-            name = name,
-            type = type,
-            parentId = parentId,
-            sortOrder = 0
-        )
-        dao.insert(gallery)
     }
 
     fun addItems(galleryId: Long, input: String) {
@@ -152,9 +117,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             val values = InputParser.parse(input)
             val existing = itemDao.getExistingValues(galleryId).toSet()
             val newValues = values.filter { it !in existing }
-            
+
             val currentMax = itemDao.getItemsOnce(galleryId).maxOfOrNull { it.sortOrder } ?: -1
-            
+
             val items = newValues.mapIndexed { index, value ->
                 GalleryItem(
                     galleryId = galleryId,
@@ -162,24 +127,19 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                     sortOrder = currentMax + index + 1
                 )
             }
-            
+
             itemDao.insertAll(items)
-            
-            if (currentGalleryType != GalleryType.REDGIF) {
-                items.forEach { item ->
-                    val thumbPath = ThumbnailDownloader.downloadThumbnail(item.id, currentGalleryType, item.value)
-                    if (thumbPath != null) {
-                        itemDao.updateThumbnailPath(item.id, thumbPath)
-                    }
-                }
-            }
-            
-            loadGallery(galleryId)
+
+            val newStates = items.map { MediaItemState.fromGalleryItem(it) }
+            val currentList = _mediaItems.value.toMutableList()
+            currentList.addAll(newStates)
+            _mediaItems.value = currentList
+
+            resolveAllItems(newStates, galleryId)
         }
     }
 
     suspend fun deleteItem(itemId: Long) = withContext(Dispatchers.IO) {
-        ThumbnailDownloader.deleteThumbnail(itemId)
         itemDao.deleteById(itemId)
     }
 
@@ -193,14 +153,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     suspend fun deleteGallery(galleryId: Long) = withContext(Dispatchers.IO) {
-        val items = itemDao.getItemsOnce(galleryId)
-        items.forEach { ThumbnailDownloader.deleteThumbnail(it.id) }
         itemDao.deleteByGalleryId(galleryId)
         dao.deleteById(galleryId)
     }
 
-    fun toggleEditMode() {
-        _editMode.value = !(_editMode.value ?: false)
+    suspend fun createGallery(name: String, type: GalleryType, parentId: Long? = null): Long = withContext(Dispatchers.IO) {
+        val gallery = Gallery(
+            name = name,
+            type = type,
+            parentId = parentId,
+            sortOrder = 0
+        )
+        dao.insert(gallery)
     }
 
     suspend fun reorderGalleries(galleries: List<Gallery>) = withContext(Dispatchers.IO) {

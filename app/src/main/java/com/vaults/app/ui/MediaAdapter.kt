@@ -1,5 +1,6 @@
 package com.vaults.app.ui
 
+import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -15,26 +16,41 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.vaults.app.R
 import com.vaults.app.db.GalleryType
-import com.vaults.app.vm.ResolvedItem
-import java.io.File
-import java.util.concurrent.ConcurrentHashMap
+import com.vaults.app.vm.MediaItemState
 
 class MediaAdapter(
     private val galleryType: GalleryType,
-    private val onItemClick: (ResolvedItem) -> Unit,
-    private val onItemDelete: (ResolvedItem) -> Unit
-) : ListAdapter<ResolvedItem, MediaAdapter.ViewHolder>(DiffCallback()) {
+    private val onItemClick: (MediaItemState) -> Unit,
+    private val onItemDelete: (MediaItemState) -> Unit
+) : ListAdapter<MediaItemState, MediaAdapter.ViewHolder>(DiffCallback()) {
 
-    private val players = ConcurrentHashMap<Long, ExoPlayer>()
+    private val playerPool = mutableListOf<ExoPlayer>()
+    private val activePlayers = mutableMapOf<Int, ExoPlayer>()
+    private var context: Context? = null
+
+    fun initPool(ctx: Context) {
+        if (context == null) {
+            context = ctx
+            repeat(8) {
+                val player = ExoPlayer.Builder(ctx).build().apply {
+                    repeatMode = Player.REPEAT_MODE_ONE
+                    volume = 0f
+                    playWhenReady = true
+                }
+                playerPool.add(player)
+            }
+        }
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        if (context == null) initPool(parent.context)
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_media, parent, false)
         return ViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(getItem(position), position)
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
@@ -50,16 +66,16 @@ class MediaAdapter(
         private val errorIcon: ImageView = itemView.findViewById(R.id.errorIcon)
         private val btnDelete: ImageButton = itemView.findViewById(R.id.btnDelete)
 
-        private var currentItem: ResolvedItem? = null
+        private var currentPosition: Int = -1
         private var currentPlayer: ExoPlayer? = null
 
-        fun bind(item: ResolvedItem) {
-            currentItem = item
+        fun bind(item: MediaItemState, position: Int) {
+            currentPosition = position
 
             when {
                 item.isLoading -> showLoading()
                 item.error != null -> showError()
-                else -> showThumbnail(item)
+                else -> showMedia(item)
             }
 
             btnDelete.visibility = View.GONE
@@ -89,62 +105,18 @@ class MediaAdapter(
             releasePlayer()
         }
 
-        private fun showThumbnail(item: ResolvedItem) {
-            val hasLocalThumb = item.thumbnailPath != null && File(item.thumbnailPath!!).exists()
-            val shouldAutoplay = galleryType == GalleryType.PORNHUB
-            val hasResolvedUrl = item.resolvedUrl != null
+        private fun showMedia(item: MediaItemState) {
+            val videoUrl = item.url
+            val embedUrl = item.embedUrl
 
             when {
-                shouldAutoplay && hasResolvedUrl -> showVideoThumb(item)
-                hasLocalThumb -> showImageThumb(item.thumbnailPath!!)
-                galleryType == GalleryType.REDGIF && item.embedUrl != null -> showRedGifEmbed(item.embedUrl!!)
-                galleryType == GalleryType.PORNHUB && item.value.isNotEmpty() -> showPhThumb(item.value)
-                galleryType == GalleryType.NORMAL && item.value.isNotEmpty() -> showUrlThumb(item.value)
-                else -> showPlaceholder()
+                item.isVideo && videoUrl != null -> showVideo(videoUrl)
+                embedUrl != null -> showEmbed(embedUrl)
+                else -> showImage(item.url ?: item.value)
             }
         }
 
-        private fun showImageThumb(path: String) {
-            progressBar.visibility = View.GONE
-            imageView.visibility = View.VISIBLE
-            playerView.visibility = View.GONE
-            playIcon.visibility = View.GONE
-            errorIcon.visibility = View.GONE
-
-            Glide.with(itemView.context)
-                .load(File(path))
-                .centerCrop()
-                .into(imageView)
-        }
-
-        private fun showUrlThumb(url: String) {
-            progressBar.visibility = View.GONE
-            imageView.visibility = View.VISIBLE
-            playerView.visibility = View.GONE
-            playIcon.visibility = View.GONE
-            errorIcon.visibility = View.GONE
-
-            Glide.with(itemView.context)
-                .load(url)
-                .centerCrop()
-                .into(imageView)
-        }
-
-        private fun showPhThumb(gifId: String) {
-            progressBar.visibility = View.GONE
-            imageView.visibility = View.VISIBLE
-            playerView.visibility = View.GONE
-            playIcon.visibility = View.GONE
-            errorIcon.visibility = View.GONE
-
-            val thumbUrl = "https://cdn.pornhub.phncdn.com/thumbnails/$gifId/preview/00007.jpg"
-            Glide.with(itemView.context)
-                .load(thumbUrl)
-                .centerCrop()
-                .into(imageView)
-        }
-
-        private fun showVideoThumb(item: ResolvedItem) {
+        private fun showVideo(url: String) {
             progressBar.visibility = View.GONE
             imageView.visibility = View.GONE
             playerView.visibility = View.VISIBLE
@@ -153,29 +125,25 @@ class MediaAdapter(
 
             releasePlayer()
 
-            val player = ExoPlayer.Builder(itemView.context).build().apply {
-                repeatMode = Player.REPEAT_MODE_ONE
-                volume = 0f
-                playWhenReady = true
-            }
+            if (playerPool.isNotEmpty()) {
+                currentPlayer = playerPool.removeAt(0)
+                activePlayers[currentPosition] = currentPlayer!!
 
-            item.resolvedUrl?.let { url ->
-                val mediaItem = MediaItem.fromUri(url)
-                player.setMediaItem(mediaItem)
-                player.prepare()
-            }
+                currentPlayer!!.setMediaItem(MediaItem.fromUri(url))
+                currentPlayer!!.prepare()
+                currentPlayer!!.play()
 
-            playerView.player = player
-            currentPlayer = player
-            players[item.id] = player
+                playerView.player = currentPlayer
+            }
         }
 
-        private fun showRedGifEmbed(embedUrl: String) {
+        private fun showEmbed(embedUrl: String) {
             progressBar.visibility = View.GONE
             imageView.visibility = View.VISIBLE
             playerView.visibility = View.GONE
             playIcon.visibility = View.VISIBLE
             errorIcon.visibility = View.GONE
+            releasePlayer()
 
             val gifId = embedUrl.substringAfterLast("/")
             Glide.with(itemView.context)
@@ -184,32 +152,47 @@ class MediaAdapter(
                 .into(imageView)
         }
 
-        private fun showPlaceholder() {
+        private fun showImage(url: String) {
             progressBar.visibility = View.GONE
             imageView.visibility = View.VISIBLE
             playerView.visibility = View.GONE
-            playIcon.visibility = View.VISIBLE
+            playIcon.visibility = View.GONE
             errorIcon.visibility = View.GONE
-            imageView.setImageResource(R.drawable.ic_placeholder)
+            releasePlayer()
+
+            if (url.startsWith("http")) {
+                Glide.with(itemView.context)
+                    .load(url)
+                    .centerCrop()
+                    .into(imageView)
+            } else {
+                imageView.setImageResource(R.drawable.ic_placeholder)
+            }
         }
 
-        fun releasePlayer() {
-            currentPlayer?.release()
-            currentItem?.let { players.remove(it.id) }
-            currentPlayer = null
+        private fun releasePlayer() {
+            currentPlayer?.let { player ->
+                player.pause()
+                playerPool.add(player)
+                activePlayers.remove(currentPosition)
+                currentPlayer = null
+            }
+            playerView.player = null
         }
     }
 
     fun releaseAllPlayers() {
-        players.values.forEach { it.release() }
-        players.clear()
+        playerPool.forEach { it.release() }
+        playerPool.clear()
+        activePlayers.values.forEach { it.release() }
+        activePlayers.clear()
     }
 
-    class DiffCallback : DiffUtil.ItemCallback<ResolvedItem>() {
-        override fun areItemsTheSame(oldItem: ResolvedItem, newItem: ResolvedItem): Boolean =
+    class DiffCallback : DiffUtil.ItemCallback<MediaItemState>() {
+        override fun areItemsTheSame(oldItem: MediaItemState, newItem: MediaItemState): Boolean =
             oldItem.id == newItem.id
 
-        override fun areContentsTheSame(oldItem: ResolvedItem, newItem: ResolvedItem): Boolean =
+        override fun areContentsTheSame(oldItem: MediaItemState, newItem: MediaItemState): Boolean =
             oldItem == newItem
     }
 }
