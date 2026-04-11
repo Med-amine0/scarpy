@@ -75,8 +75,9 @@ class WebViewGalleryActivity : AppCompatActivity() {
     private fun loadGalleryItems() {
         lifecycleScope.launch {
             // Show loading
+            binding.webView.loadUrl("about:blank")
             binding.webView.loadDataWithBaseURL(
-                "https://vaults.app/",
+                "about:blank",
                 loadingHtml(),
                 "text/html",
                 "UTF-8",
@@ -329,7 +330,7 @@ renderGrid();
 </html>
         """.trimIndent()
 
-        binding.webView.loadDataWithBaseURL("https://vaults.app/", html, "text/html", "UTF-8", null)
+        binding.webView.loadDataWithBaseURL("about:blank", html, "text/html", "UTF-8", null)
     }
 
     inner class Bridge(private val context: Context) {

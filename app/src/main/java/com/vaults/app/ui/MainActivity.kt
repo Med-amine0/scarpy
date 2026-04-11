@@ -236,7 +236,7 @@ renderFolders();
 </html>
             """.trimIndent()
 
-            binding.webView.loadDataWithBaseURL("https://vaults.app/", html, "text/html", "UTF-8", null)
+            binding.webView.loadDataWithBaseURL("about:blank", html, "text/html", "UTF-8", null)
         }
     }
 
