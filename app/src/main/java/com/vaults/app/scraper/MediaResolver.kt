@@ -25,7 +25,7 @@ object HttpClient {
 }
 
 data class ResolvedMedia(
-    val url: String?,
+    val url: String? = null,
     val embedUrl: String? = null,
     val isVideo: Boolean = false,
     val error: String? = null
