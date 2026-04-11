@@ -77,11 +77,7 @@ class MainActivity : AppCompatActivity() {
     private fun loadFolders() {
         lifecycleScope.launch {
             val folders = withContext(Dispatchers.IO) {
-                VaultsApp.instance.db.galleryDao().getRootGalleries().let { flow ->
-                    var result = listOf<Gallery>()
-                    flow.collect { result = it; return@let }
-                    result
-                }
+                VaultsApp.instance.db.galleryDao().getRootGalleriesOnce()
             }
 
             val foldersJson = JSONArray()
