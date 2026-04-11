@@ -55,7 +55,7 @@ class MediaAdapter(
 
     override fun onViewRecycled(holder: ViewHolder) {
         super.onViewRecycled(holder)
-        holder.releasePlayer()
+        holder.onRecycled()
     }
 
     inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -178,6 +178,10 @@ class MediaAdapter(
                 currentPlayer = null
             }
             playerView.player = null
+        }
+
+        fun onRecycled() {
+            releasePlayer()
         }
     }
 

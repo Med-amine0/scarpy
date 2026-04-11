@@ -43,7 +43,6 @@ data class MediaItemState(
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = VaultsApp.instance.db.galleryDao()
     private val itemDao = VaultsApp.instance.db.galleryItemDao()
-    private val resolver = MediaResolver()
 
     private val _rootGalleries = MutableLiveData<List<Gallery>>()
     val rootGalleries: LiveData<List<Gallery>> = _rootGalleries
@@ -94,7 +93,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun resolveAllItems(items: List<MediaItemState>, galleryId: Long) {
         items.forEach { item ->
             if (item.isLoading && item.error == null) {
-                val result = resolver.resolve(currentGalleryType, item.value)
+                val result = com.vaults.app.scraper.MediaResolver.resolve(currentGalleryType, item.value)
                 
                 val currentList = _mediaItems.value.toMutableList()
                 val index = currentList.indexOfFirst { it.id == item.id }
@@ -171,5 +170,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         galleries.forEachIndexed { index, gallery ->
             dao.updateSortOrder(gallery.id, index)
         }
+    }
+
+    fun toggleEditMode() {
+        // Edit mode functionality removed
     }
 }
