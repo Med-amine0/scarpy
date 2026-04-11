@@ -2,10 +2,10 @@ package com.vaults.app
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
@@ -13,6 +13,9 @@ import androidx.lifecycle.lifecycleScope
 import com.vaults.app.databinding.ActivityWebviewGalleryBinding
 import com.vaults.app.db.GalleryItem
 import com.vaults.app.db.GalleryType
+import com.vaults.app.scraper.MediaResolver
+import com.vaults.app.scraper.ResolvedMedia
+import com.vaults.app.scraper.ResolvedMedia
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -23,9 +26,6 @@ class WebViewGalleryActivity : AppCompatActivity() {
     private lateinit var binding: ActivityWebviewGalleryBinding
     private var galleryId: Long = 0
     private var galleryType: GalleryType = GalleryType.NORMAL
-    
-    private var currentRotation = 0
-    private var isFullscreen = false
 
     companion object {
         const val EXTRA_GALLERY_ID = "gallery_id"
@@ -50,27 +50,22 @@ class WebViewGalleryActivity : AppCompatActivity() {
             domStorageEnabled = true
             loadWithOverviewMode = true
             useWideViewPort = true
-            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             allowContentAccess = true
             allowFileAccess = true
             blockNetworkImage = false
             blockNetworkLoads = false
         }
-        
+
         binding.webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(msg: String, lineNumber: Int, sourceID: String) {
                 android.util.Log.d("WebViewGallery", "JS: $msg")
             }
         }
-        
+
         binding.webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 return false
-            }
-            
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                android.util.Log.d("WebViewGallery", "Page loaded")
             }
         }
         binding.webView.addJavascriptInterface(Bridge(this), "Android")
@@ -78,30 +73,95 @@ class WebViewGalleryActivity : AppCompatActivity() {
 
     private fun loadGalleryItems() {
         lifecycleScope.launch {
-            val items = withContext(Dispatchers.IO) {
-                VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
-            }
-            
+            // Show loading
+            binding.webView.loadDataWithBaseURL(
+                "https://vaults.app/",
+                loadingHtml(),
+                "text/html",
+                "UTF-8",
+                null
+            )
+
+            // Get gallery type
             val type = withContext(Dispatchers.IO) {
                 VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)?.type ?: GalleryType.NORMAL
             }
             galleryType = type
 
-            val itemsJson = JSONArray()
-            items.forEach { item ->
-                val obj = JSONObject().apply {
-                    put("id", item.id)
-                    put("value", item.value)
-                    put("type", type.name)
-                }
-                itemsJson.put(obj)
+            // Get raw items from DB
+            val rawItems = withContext(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
             }
-            
-            loadThumbnailGrid(itemsJson.toString())
+
+            // Resolve each item using MediaResolver
+            val resolvedItems = rawItems.map { item ->
+                val result = withContext(Dispatchers.IO) {
+                    MediaResolver.resolve(type, item.value)
+                }
+                ResolvedMedia(
+                    id = item.id,
+                    value = item.value,
+                    url = result.url,
+                    embedUrl = result.embedUrl,
+                    isVideo = result.isVideo,
+                    error = result.error
+                )
+            }
+
+            // Render HTML with resolved data
+            loadThumbnailGrid(resolvedItems)
         }
     }
 
-    private fun loadThumbnailGrid(itemsJson: String) {
+    private fun loadingHtml(): String = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; color: #666; }
+</style>
+</head>
+<body>
+<div>Loading...</div>
+</body>
+</html>
+    """.trimIndent()
+
+    private fun loadThumbnailGrid(items: List<ResolvedMedia>) {
+        val itemsJson = JSONArray()
+        items.forEach { item ->
+            val html = when {
+                // RedGif - iframe
+                item.embedUrl?.contains("redgifs.com") == true -> {
+                    val id = item.value.substringAfterLast("/").substringBefore("?").take(12)
+                    "<iframe src='https://www.redgifs.com/ifr/$id' frameborder='0' scrolling='no' allowfullscreen width='1080' height='1920' style='width:100%;height:100%;border:none;'></iframe>"
+                }
+                // PornHub - video element
+                item.embedUrl?.contains("pornhub.com") == true || (item.isVideo && item.url != null) -> {
+                    if (item.url != null) {
+                        "<video autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'><source src='${item.url}' type='video/webm'></video>"
+                    } else {
+                        // Fallback to embed if no resolved URL
+                        val id = item.value.replace(Regex("[^a-zA-Z0-9]"), "")
+                        "<iframe src='https://www.pornhub.com/embedgif/$id' style='width:100%;height:100%;border:none;' allowfullscreen></iframe>"
+                    }
+                }
+                // Normal image
+                else -> {
+                    val src = item.url ?: item.value
+                    "<img src='$src' style='width:100%;height:100%;object-fit:cover;'>"
+                }
+            }
+
+            val obj = JSONObject().apply {
+                put("id", item.id)
+                put("html", html)
+                put("isVideo", item.isVideo)
+            }
+            itemsJson.put(obj)
+        }
+
         val html = """
 <!DOCTYPE html>
 <html>
@@ -119,29 +179,16 @@ body { background: #000; }
 .thumb { 
   position: relative; 
   aspect-ratio: 3/4; 
-  border-radius: 8px; 
+  border-radius: 12px;
   overflow: hidden; 
   background: #1a1a1a;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  cursor: pointer;
 }
-.thumb img, .thumb video { 
-  width: 100%; 
-  height: 100%; 
-  object-fit: cover; 
-}
-.play-icon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 36px;
-  height: 36px;
-}
-.loading {
-  color: #666;
-  font-size: 12px;
+.thumb iframe, .thumb video, .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
 }
 .fullscreen {
   position: fixed;
@@ -156,13 +203,16 @@ body { background: #000; }
   z-index: 1000;
 }
 .fullscreen.active { display: flex; }
-.media-container {
-  max-width: 100%;
-  max-height: 100%;
+.fullscreen-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   transition: transform 0.3s;
   transform-origin: center;
 }
-.media-container img, .media-container video, .media-container iframe {
+.fullscreen-content iframe, .fullscreen-content video, .fullscreen-content img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -196,126 +246,61 @@ body { background: #000; }
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   z-index: 100;
 }
+.empty-msg {
+  grid-column: 1/-1;
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
 </style>
 </head>
 <body>
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
   <button class="close-btn" onclick="closeFullscreen()">×</button>
-  <div class="media-container" id="mediaContainer" onclick="rotate()"></div>
+  <div class="fullscreen-content" id="fullscreenContent" onclick="rotate()"></div>
 </div>
 <button class="add-btn" onclick="Android.showAddDialog()">+</button>
 <script>
-console.log('Items: ' + $itemsJson);
 var items = $itemsJson;
 var rotation = 0;
 
 function renderGrid() {
-  console.log('Rendering ' + items.length + ' items');
   var grid = document.getElementById('grid');
   grid.innerHTML = '';
   
   if (items.length === 0) {
-    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#666;">No items yet. Tap + to add URLs.</div>';
+    grid.innerHTML = '<div class="empty-msg">No items yet. Tap + to add URLs.</div>';
     return;
   }
   
   items.forEach(function(item, index) {
-    console.log('Item ' + index + ': ' + item.type + ' - ' + item.value);
-    
     var thumb = document.createElement('div');
     thumb.className = 'thumb';
+    thumb.innerHTML = item.html;
     thumb.onclick = function() { openFullscreen(index); };
-    
-    var mediaType = item.type;
-    var value = item.value;
-    
-    if (mediaType === 'PORNHUB') {
-      var id = value.replace(/[^a-zA-Z0-9]/g, '');
-      var img = document.createElement('img');
-      img.src = 'https://thumb-videos1.pornhub.com/thumbs/' + id + '.jpg';
-      img.onerror = function() { 
-        this.style.display = 'none';
-        var play = document.createElement('span');
-        play.className = 'play-icon';
-        play.textContent = '▶';
-        play.style.color = '#fff';
-        play.style.fontSize = '24px';
-        thumb.appendChild(play);
-      };
-      thumb.appendChild(img);
-    } else if (mediaType === 'REDGIF') {
-      var id = value.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12);
-      var img = document.createElement('img');
-      img.src = 'https://thumbs.redgifs.com/' + id + '-poster.jpg';
-      img.onerror = function() {
-        this.style.display = 'none';
-        var play = document.createElement('span');
-        play.className = 'play-icon';
-        play.textContent = '▶';
-        play.style.color = '#fff';
-        play.style.fontSize = '24px';
-        thumb.appendChild(play);
-      };
-      thumb.appendChild(img);
-    } else if (value.endsWith('.mp4') || value.endsWith('.webm')) {
-      var video = document.createElement('video');
-      video.src = value;
-      video.autoplay = true;
-      video.muted = true;
-      video.loop = true;
-      video.playsinline = true;
-      video.style.width = '100%';
-      video.style.height = '100%';
-      video.style.objectFit = 'cover';
-      thumb.appendChild(video);
-    } else {
-      var img = document.createElement('img');
-      img.src = value;
-      img.style.width = '100%';
-      img.style.height = '100%';
-      img.style.objectFit = 'cover';
-      img.onerror = function() { 
-        console.log('Image load error: ' + value);
-        this.style.display = 'none'; 
-        this.parentElement.innerHTML = '<span style="color:#666;">⚠️</span>';
-      };
-      thumb.appendChild(img);
-    }
     grid.appendChild(thumb);
   });
 }
 
 function openFullscreen(index) {
   var item = items[index];
-  var container = document.getElementById('mediaContainer');
+  var content = document.getElementById('fullscreenContent');
   var fullscreen = document.getElementById('fullscreen');
   rotation = 0;
-  container.style.transform = 'rotate(0deg)';
-  
-  if (item.type === 'PORNHUB') {
-    var id = item.value.replace(/[^a-zA-Z0-9]/g, '');
-    container.innerHTML = '<iframe src="https://www.pornhub.com/embedgif/' + id + '" frameborder="0" allowfullscreen style="width:100%;height:100%;"></iframe>';
-  } else if (item.type === 'REDGIF') {
-    var id = item.value.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12);
-    container.innerHTML = '<iframe src="https://www.redgifs.com/ifr/' + id + '" frameborder="0" allowfullscreen style="width:100%;height:100%;"></iframe>';
-  } else if (item.value.endsWith('.mp4') || item.value.endsWith('.webm')) {
-    container.innerHTML = '<video src="' + item.value + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:contain;"></video>';
-  } else {
-    container.innerHTML = '<img src="' + item.value + '" style="width:100%;height:100%;object-fit:contain;">';
-  }
-  
+  content.style.transform = 'rotate(0deg)';
+  content.innerHTML = item.html;
   fullscreen.classList.add('active');
 }
 
 function closeFullscreen() {
   document.getElementById('fullscreen').classList.remove('active');
-  document.getElementById('mediaContainer').innerHTML = '';
+  document.getElementById('fullscreenContent').innerHTML = '';
 }
 
 function rotate() {
   rotation = (rotation + 90) % 360;
-  document.getElementById('mediaContainer').style.transform = 'rotate(' + rotation + 'deg)';
+  document.getElementById('fullscreenContent').style.transform = 'rotate(' + rotation + 'deg)';
 }
 
 renderGrid();
