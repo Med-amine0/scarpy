@@ -375,12 +375,17 @@ renderGrid();
                     .filter { it.isNotBlank() }
                     .distinct()
 
+                val existing = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().getExistingValues(galleryId).toSet()
+                }
+                val newValues = values.filter { it !in existing }
+
                 val currentMax = withContext(Dispatchers.IO) {
                     VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
                         .maxOfOrNull { it.sortOrder } ?: -1
                 }
 
-                val items = values.mapIndexed { index, value ->
+                val items = newValues.mapIndexed { index, value ->
                     GalleryItem(
                         galleryId = galleryId,
                         value = value,

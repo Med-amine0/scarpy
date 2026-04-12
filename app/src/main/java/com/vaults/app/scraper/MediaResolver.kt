@@ -101,10 +101,8 @@ object MediaResolver {
             input.contains("redgifs.com") -> {
                 input.substringAfterLast("/")
                     .substringBefore("?")
-                    .substringBefore("-")
-                    .take(12)
             }
-            else -> input.substringAfterLast("/").substringBefore("?").take(12)
+            else -> input.substringAfterLast("/").substringBefore("?")
         }
         
         val embedUrl = "https://redgifs.com/ifr/$cleanId"
