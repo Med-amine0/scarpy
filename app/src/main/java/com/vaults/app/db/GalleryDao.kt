@@ -44,6 +44,9 @@ interface GalleryItemDao {
     @Query("SELECT * FROM gallery_items WHERE id = :id")
     suspend fun getItemById(id: Long): GalleryItem?
 
+    @Query("UPDATE gallery_items SET resolvedUrl = :url WHERE id = :id")
+    suspend fun updateResolvedUrl(id: Long, url: String)
+
     @Query("SELECT value FROM gallery_items WHERE galleryId = :galleryId")
     suspend fun getExistingValues(galleryId: Long): List<String>
 

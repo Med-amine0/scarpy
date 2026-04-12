@@ -34,6 +34,11 @@
             android:theme="@style/Theme.Vaults" />
 
         <activity
+            android:name=".InAppBrowserActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Vaults" />
+
+        <activity
             android:name=".ui.SettingsActivity"
             android:exported="false"
             android:theme="@style/Theme.Vaults" />

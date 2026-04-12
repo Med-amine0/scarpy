@@ -22,5 +22,6 @@ data class GalleryItem(
     val id: Long = 0,
     val galleryId: Long,
     val value: String,
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    val resolvedUrl: String? = null
 )

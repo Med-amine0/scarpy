@@ -72,42 +72,50 @@ class WebViewGalleryActivity : AppCompatActivity() {
 
     private fun loadGalleryItems() {
         lifecycleScope.launch {
-            // Show loading
-            binding.webView.loadUrl("about:blank")
-            binding.webView.loadDataWithBaseURL(
-                "https://app.vaults.local",
-                loadingHtml(),
-                "text/html",
-                "UTF-8",
-                null
-            )
-
-            // Get gallery type
             val type = withContext(Dispatchers.IO) {
                 VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)?.type ?: GalleryType.NORMAL
             }
             galleryType = type
 
-            // Get raw items from DB and resolve PH/RedGif server-side
-            val itemsJson = JSONArray()
-            withContext(Dispatchers.IO) {
-                VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId).forEach { item ->
-                    val obj = JSONObject().apply {
-                        put("id", item.id)
-                        put("value", item.value)
-                        put("type", type.name)
-                    }
-                    // Resolve PH and RedGif to direct URLs server-side - iframes don't work
-                    if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
-                        val resolved = MediaResolver.resolve(type, item.value)
-                        if (resolved.url != null) obj.put("resolvedUrl", resolved.url)
-                    }
-                    itemsJson.put(obj)
-                }
+            // Build JSON from DB immediately - use cached resolvedUrl where available
+            val items = withContext(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
             }
 
-            // Render directly with raw values - JavaScript handles resolution
+            val itemsJson = JSONArray()
+            items.forEach { item ->
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("value", item.value)
+                    put("type", type.name)
+                    if (item.resolvedUrl != null) put("resolvedUrl", item.resolvedUrl)
+                }
+                itemsJson.put(obj)
+            }
+
+            // Render grid immediately with whatever we have cached
             loadThumbnailGridFast(itemsJson.toString())
+
+            // Resolve uncached PH/RedGif items in background, inject into page as they complete
+            if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
+                val uncached = items.filter { it.resolvedUrl == null }
+                uncached.forEach { item ->
+                    val resolved = withContext(Dispatchers.IO) {
+                        MediaResolver.resolve(type, item.value)
+                    }
+                    if (resolved.url != null) {
+                        // Save to DB cache
+                        withContext(Dispatchers.IO) {
+                            VaultsApp.instance.db.galleryItemDao().updateResolvedUrl(item.id, resolved.url)
+                        }
+                        // Inject into live page
+                        val escapedUrl = resolved.url.replace("'", "\\'")
+                        binding.webView.evaluateJavascript(
+                            "injectResolvedUrl(${item.id}, '$escapedUrl');", null
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -255,45 +263,66 @@ var items = $itemsJson;
 var galleryType = '$galleryType';
 var rotation = 0;
 
-function getHtml(item) {
+function getHtml(item, forFullscreen) {
   var value = item.value;
   var type = galleryType;
 
   if (type === 'REDGIF') {
-    // Use server-resolved direct URL if available, else fall back to iframe
     if (item.resolvedUrl) {
       return "<video src='" + item.resolvedUrl + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
     }
-    var id = value.includes('redgifs.com') ? value.split('/').pop().split('?')[0] : value;
-    id = id.replace(/[^a-zA-Z0-9]/g, '');
-    return "<iframe src='https://www.redgifs.com/ifr/" + id + "' frameBorder='0' scrolling='no' style='width:100%;height:100%;border:none;' allowFullScreen></iframe>";
+    // Not resolved yet - show spinner
+    return "<div style='display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;'>Loading...</div>";
   } else if (type === 'PORNHUB') {
-    // PH iframes are blocked by X-Frame-Options - must use resolved direct URL
     if (item.resolvedUrl) {
       return "<video src='" + item.resolvedUrl + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
     }
-    return "<div style='color:#666;font-size:12px;display:flex;align-items:center;justify-content:center;height:100%'>Failed to load</div>";
+    return "<div style='display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;'>Loading...</div>";
   } else if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     return "<video src='" + value + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
   } else {
-    return "<img src='" + value + "' style='width:100%;height:100%;object-fit:cover;'>";
+    return "<img src='" + value + "' style='width:100%;height:100%;object-fit:cover;' loading='lazy'>";
   }
+}
+
+// Called from Kotlin when a background resolution finishes
+function injectResolvedUrl(itemId, url) {
+  // Update item in array
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].id === itemId) {
+      items[i].resolvedUrl = url;
+      break;
+    }
+  }
+  // Update the thumb cell in the grid
+  var cell = document.querySelector('[data-id="' + itemId + '"]');
+  if (cell) cell.innerHTML = getHtml(items.find(function(x){ return x.id === itemId; }));
 }
 
 function renderGrid() {
   var grid = document.getElementById('grid');
   grid.innerHTML = '';
-  
+
   if (items.length === 0) {
     grid.innerHTML = '<div class="empty-msg">No items yet. Tap + to add URLs.</div>';
     return;
   }
-  
+
   items.forEach(function(item, index) {
     var thumb = document.createElement('div');
     thumb.className = 'thumb';
-    thumb.innerHTML = getHtml(item);
-    thumb.onclick = function() { openFullscreen(index); };
+    thumb.setAttribute('data-id', item.id);
+    thumb.innerHTML = getHtml(item, false);
+    thumb.onclick = function() {
+      if (galleryType === 'REDGIF' && item.resolvedUrl) {
+        // Open RedGif in-app via bridge (shows full iframe in overlay inside app)
+        var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
+        id = id.replace(/[^a-zA-Z0-9]/g, '');
+        Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
+      } else {
+        openFullscreen(index);
+      }
+    };
     grid.appendChild(thumb);
   });
 }
@@ -304,7 +333,7 @@ function openFullscreen(index) {
   var fullscreen = document.getElementById('fullscreen');
   rotation = 0;
   content.style.transform = 'rotate(0deg)';
-  content.innerHTML = getHtml(item);
+  content.innerHTML = getHtml(item, true);
   fullscreen.classList.add('active');
 }
 
@@ -339,6 +368,13 @@ renderGrid();
         @JavascriptInterface
         fun goBack() {
             finish()
+        }
+
+        @JavascriptInterface
+        fun openInAppUrl(url: String) {
+            val intent = android.content.Intent(context, InAppBrowserActivity::class.java)
+            intent.putExtra("url", url)
+            context.startActivity(intent)
         }
 
         @JavascriptInterface
