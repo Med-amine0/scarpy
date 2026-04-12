@@ -34,6 +34,21 @@ data class ResolvedMedia(
 
 object MediaResolver {
     private val semaphore = Semaphore(4)
+    private var redgifToken: String? = null
+
+    private fun getRedgifToken(): String? {
+        if (redgifToken != null) return redgifToken
+        return try {
+            val req = HttpClient.buildRequest("https://api.redgifs.com/v2/auth/temporary")
+            val res = HttpClient.client.newCall(req).execute()
+            if (res.isSuccessful) {
+                val body = res.body?.string() ?: return null
+                Regex(""""token"\s*:\s*"([^"]+)"""").find(body)?.groupValues?.getOrNull(1)?.also {
+                    redgifToken = it
+                }
+            } else null
+        } catch (e: Exception) { null }
+    }
 
     suspend fun resolve(galleryType: GalleryType, value: String): ResolvedMedia = semaphore.withPermit {
         withContext(Dispatchers.IO) {
@@ -98,33 +113,35 @@ object MediaResolver {
 
     private fun resolveRedgif(input: String): ResolvedMedia {
         val cleanId = when {
-            input.contains("redgifs.com") -> {
-                input.substringAfterLast("/")
-                    .substringBefore("?")
-            }
+            input.contains("redgifs.com") -> input.substringAfterLast("/").substringBefore("?")
             else -> input.substringAfterLast("/").substringBefore("?")
         }
-        
+
         val embedUrl = "https://redgifs.com/ifr/$cleanId"
-        
+
         return try {
-            val request = HttpClient.buildRequest("https://api.redgifs.com/v2/gifs/$cleanId")
-            val response = HttpClient.client.newCall(request).execute()
-            
-            if (!response.isSuccessful) {
-                return ResolvedMedia(embedUrl = embedUrl, isVideo = true)
+            // Step 1: get a temporary token (required by RedGifs API)
+            val token = getRedgifToken()
+
+            // Step 2: fetch gif info with token if we got one
+            val gifRequest = if (token != null) {
+                Request.Builder()
+                    .url("https://api.redgifs.com/v2/gifs/$cleanId")
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    .header("Authorization", "Bearer $token")
+                    .build()
+            } else {
+                HttpClient.buildRequest("https://api.redgifs.com/v2/gifs/$cleanId")
             }
-            
-            val body = response.body?.string() ?: return ResolvedMedia(
-                embedUrl = embedUrl, isVideo = true
-            )
-            
-            val hdRegex = Pattern.compile(""""hd":\s*"([^"]+)"""").toRegex()
-            val sdRegex = Pattern.compile(""""sd":\s*"([^"]+)"""").toRegex()
-            
-            val hdUrl = hdRegex.find(body)?.groupValues?.getOrNull(1)
-            val sdUrl = sdRegex.find(body)?.groupValues?.getOrNull(1)
-            
+
+            val response = HttpClient.client.newCall(gifRequest).execute()
+            if (!response.isSuccessful) return ResolvedMedia(embedUrl = embedUrl, isVideo = true)
+
+            val body = response.body?.string() ?: return ResolvedMedia(embedUrl = embedUrl, isVideo = true)
+
+            val hdUrl = Regex(""""hd"\s*:\s*"([^"]+)"""").find(body)?.groupValues?.getOrNull(1)
+            val sdUrl = Regex(""""sd"\s*:\s*"([^"]+)"""").find(body)?.groupValues?.getOrNull(1)
+
             when {
                 hdUrl != null -> ResolvedMedia(url = hdUrl, isVideo = true)
                 sdUrl != null -> ResolvedMedia(url = sdUrl, isVideo = true)

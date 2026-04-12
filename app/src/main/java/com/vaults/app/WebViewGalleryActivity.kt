@@ -55,7 +55,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
             allowFileAccess = true
             blockNetworkImage = false
             blockNetworkLoads = false
-            cacheMode = WebSettings.LOAD_NO_CACHE
+            cacheMode = WebSettings.LOAD_DEFAULT
             userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
             mediaPlaybackRequiresUserGesture = false
         }
@@ -86,13 +86,23 @@ class WebViewGalleryActivity : AppCompatActivity() {
                 VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
             }
 
+            val nowSeconds = System.currentTimeMillis() / 1000
+
             val itemsJson = JSONArray()
             items.forEach { item ->
                 val obj = JSONObject().apply {
                     put("id", item.id)
                     put("value", item.value)
                     put("type", type.name)
-                    if (item.resolvedUrl != null) put("resolvedUrl", item.resolvedUrl)
+                    // Use cached URL only if not expired (PH URLs have validto= param)
+                    val cached = item.resolvedUrl
+                    if (cached != null) {
+                        val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
+                        if (validTo == null || validTo > nowSeconds) {
+                            put("resolvedUrl", cached)
+                        }
+                        // else expired - treat as uncached, will re-resolve
+                    }
                 }
                 itemsJson.put(obj)
             }
@@ -100,9 +110,14 @@ class WebViewGalleryActivity : AppCompatActivity() {
             // Render grid immediately with whatever we have cached
             loadThumbnailGridFast(itemsJson.toString())
 
-            // Resolve uncached PH/RedGif items in parallel, inject into page as each finishes
+            // Resolve uncached/expired items in parallel, inject into page as each finishes
             if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
-                val uncached = items.filter { it.resolvedUrl == null }
+                val uncached = items.filter { item ->
+                    val cached = item.resolvedUrl
+                    if (cached == null) return@filter true
+                    val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
+                    validTo != null && validTo <= nowSeconds // expired
+                }
                 uncached.map { item ->
                     async(Dispatchers.IO) {
                         val resolved = MediaResolver.resolve(type, item.value)
@@ -205,13 +220,15 @@ body { background: #000; }
   display: flex;
   justify-content: center;
   align-items: center;
-  transition: transform 0.3s;
   transform-origin: center;
 }
-.fullscreen-content > div, .fullscreen-content iframe, .fullscreen-content video, .fullscreen-content img {
-  max-width: 100%;
+.fullscreen-content video,
+.fullscreen-content img {
+  width: 100%;
+  height: auto;
   max-height: 100%;
   object-fit: contain;
+  display: block;
 }
 .close-btn {
   position: absolute;
@@ -287,7 +304,7 @@ function getHtml(item) {
   } else if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     return "<video src='" + value + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
   } else {
-    return "<img src='" + value + "' referrerpolicy='no-referrer' style='width:100%;height:100%;object-fit:cover;' loading='lazy'>";
+    return "<img src='" + value + "' style='width:100%;height:100%;object-fit:cover;' loading='lazy' onerror=\"this.style.opacity='0.3'\">";
   }
 }
 
