@@ -275,13 +275,12 @@ body { background: #000; }
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
   <button class="close-btn" onclick="closeFullscreen()">×</button>
-  <div class="fullscreen-content" id="fullscreenContent" onclick="rotate()"></div>
+  <div class="fullscreen-content" id="fullscreenContent"></div>
 </div>
 <button class="add-btn" onclick="Android.showAddDialog()">+</button>
 <script>
 var items = $itemsJson;
 var galleryType = '$galleryType';
-var rotation = 0;
 
 // Set columns and thumb shape based on type
 var grid = document.getElementById('grid');
@@ -292,29 +291,72 @@ if (galleryType === 'PORNHUB') {
 }
 var thumbClass = (galleryType === 'PORNHUB') ? 'thumb landscape' : 'thumb portrait';
 
-function getHtml(item) {
+// Build all thumb elements once and keep them alive - never recreate
+function buildThumbElement(item, index) {
+  var thumb = document.createElement('div');
+  thumb.className = thumbClass;
+  thumb.setAttribute('data-id', item.id);
+
+  var inner = buildMedia(item, false);
+  thumb.appendChild(inner);
+
+  thumb.onclick = function() { openFullscreen(index); };
+  return thumb;
+}
+
+function buildMedia(item, isFullscreen) {
   var value = item.value;
   var type = galleryType;
 
   if (type === 'REDGIF' || type === 'PORNHUB') {
     if (item.resolvedUrl) {
-      return "<video src='" + item.resolvedUrl + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
+      var v = document.createElement('video');
+      v.src = item.resolvedUrl;
+      v.autoplay = true;
+      v.muted = true;
+      v.loop = true;
+      v.setAttribute('playsinline', '');
+      v.style.cssText = isFullscreen
+        ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
+        : 'width:100%;height:100%;object-fit:cover;';
+      return v;
     }
-    return "<div style='display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;'>Loading...</div>";
+    var placeholder = document.createElement('div');
+    placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;';
+    placeholder.textContent = 'Loading...';
+    return placeholder;
   } else if (value.match(/\.(mp4|webm)(\?|$)/i)) {
-    return "<video src='" + value + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
+    var v = document.createElement('video');
+    v.src = value;
+    v.autoplay = true;
+    v.muted = true;
+    v.loop = true;
+    v.setAttribute('playsinline', '');
+    v.style.cssText = isFullscreen
+      ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
+      : 'width:100%;height:100%;object-fit:cover;';
+    return v;
   } else {
-    return "<img src='" + value + "' style='width:100%;height:100%;object-fit:cover;' loading='lazy' onerror=\"this.style.opacity='0.3'\">";
+    var img = document.createElement('img');
+    img.src = value;
+    img.style.cssText = isFullscreen
+      ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
+      : 'width:100%;height:100%;object-fit:cover;';
+    img.onerror = function() { this.style.opacity = '0.3'; };
+    return img;
   }
 }
 
-// Called from Kotlin when a background resolution finishes
+// Called from Kotlin when a background resolution finishes - swap placeholder for real video
 function injectResolvedUrl(itemId, url) {
   for (var i = 0; i < items.length; i++) {
-    if (items[i].id === itemId) {
+    if (items[i].id == itemId) {
       items[i].resolvedUrl = url;
       var cell = document.querySelector('[data-id="' + itemId + '"]');
-      if (cell) cell.innerHTML = getHtml(items[i]);
+      if (cell) {
+        cell.innerHTML = '';
+        cell.appendChild(buildMedia(items[i], false));
+      }
       break;
     }
   }
@@ -322,48 +364,43 @@ function injectResolvedUrl(itemId, url) {
 
 function renderGrid() {
   grid.innerHTML = '';
-
   if (items.length === 0) {
     grid.innerHTML = '<div class="empty-msg">No items yet. Tap + to add URLs.</div>';
     return;
   }
-
   items.forEach(function(item, index) {
-    var thumb = document.createElement('div');
-    thumb.className = thumbClass;
-    thumb.setAttribute('data-id', item.id);
-    thumb.innerHTML = getHtml(item);
-    thumb.onclick = function() {
-      if (galleryType === 'REDGIF' && item.resolvedUrl) {
-        var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
-        id = id.replace(/[^a-zA-Z0-9]/g, '');
-        Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
-      } else {
-        openFullscreen(index);
-      }
-    };
-    grid.appendChild(thumb);
+    grid.appendChild(buildThumbElement(item, index));
   });
 }
 
 function openFullscreen(index) {
   var item = items[index];
+  var type = galleryType;
   var content = document.getElementById('fullscreenContent');
   var fullscreen = document.getElementById('fullscreen');
-  rotation = 0;
-  content.style.transform = 'rotate(0deg)';
-  content.innerHTML = getHtml(item);
+
+  content.innerHTML = '';
+
+  // RedGif and PH: open in-app browser with the iframe URL for fullscreen
+  if (type === 'REDGIF') {
+    var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
+    id = id.replace(/[^a-zA-Z0-9]/g, '');
+    Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
+    return;
+  }
+  if (type === 'PORNHUB' && item.resolvedUrl) {
+    Android.openInAppUrl(item.resolvedUrl);
+    return;
+  }
+
+  // Normal image/video: show inline fullscreen
+  content.appendChild(buildMedia(item, true));
   fullscreen.classList.add('active');
 }
 
 function closeFullscreen() {
   document.getElementById('fullscreen').classList.remove('active');
   document.getElementById('fullscreenContent').innerHTML = '';
-}
-
-function rotate() {
-  rotation = (rotation + 90) % 360;
-  document.getElementById('fullscreenContent').style.transform = 'rotate(' + rotation + 'deg)';
 }
 
 renderGrid();
