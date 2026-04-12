@@ -12,9 +12,6 @@ import com.vaults.app.db.GalleryDao
 import com.vaults.app.db.GalleryItem
 import com.vaults.app.db.GalleryItemDao
 
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
-
 @Database(
     entities = [Gallery::class, GalleryItem::class],
     version = 2,
