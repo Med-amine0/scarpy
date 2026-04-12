@@ -64,11 +64,6 @@ class WebViewGalleryActivity : AppCompatActivity() {
 
         binding.webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                // Block any top-level navigation away from our local page (e.g. tapping inside a RedGif iframe)
-                if (url != null && !url.startsWith("https://app.vaults.local")) {
-                    android.util.Log.d("WebViewGallery", "Blocked navigation to: $url")
-                    return true
-                }
                 return false
             }
         }
@@ -93,8 +88,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
             galleryType = type
 
-            // Get raw items from DB - skip MediaResolver for faster loading
-            // Resolve on-demand in JavaScript
+            // Get raw items from DB and resolve PH/RedGif server-side
             val itemsJson = JSONArray()
             withContext(Dispatchers.IO) {
                 VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId).forEach { item ->
@@ -102,6 +96,11 @@ class WebViewGalleryActivity : AppCompatActivity() {
                         put("id", item.id)
                         put("value", item.value)
                         put("type", type.name)
+                    }
+                    // Resolve PH and RedGif to direct URLs server-side - iframes don't work
+                    if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
+                        val resolved = MediaResolver.resolve(type, item.value)
+                        if (resolved.url != null) obj.put("resolvedUrl", resolved.url)
                     }
                     itemsJson.put(obj)
                 }
@@ -259,33 +258,25 @@ var rotation = 0;
 function getHtml(item) {
   var value = item.value;
   var type = galleryType;
-  
-  console.log('getHtml: type=' + type + ', value=' + value);
-  
+
   if (type === 'REDGIF') {
-    // Extract ID - handle both full URL and just ID
-    var id = value;
-    if (value.includes('redgifs.com')) {
-      id = value.split('/').pop().split('?')[0];
+    // Use server-resolved direct URL if available, else fall back to iframe
+    if (item.resolvedUrl) {
+      return "<video src='" + item.resolvedUrl + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
     }
+    var id = value.includes('redgifs.com') ? value.split('/').pop().split('?')[0] : value;
     id = id.replace(/[^a-zA-Z0-9]/g, '');
-    console.log('RedGif id: ' + id);
-    return "<div style='position:relative; padding-bottom:177.78%'><iframe src='https://www.redgifs.com/ifr/" + id + "' frameBorder='0' scrolling='no' width='100%' height='100%' style='position:absolute; top:0; left:0;' allowFullScreen></iframe></div>";
+    return "<iframe src='https://www.redgifs.com/ifr/" + id + "' frameBorder='0' scrolling='no' style='width:100%;height:100%;border:none;' allowFullScreen></iframe>";
   } else if (type === 'PORNHUB') {
-    // Extract ID - handle both full URL and just ID
-    var id = value;
-    if (value.includes('pornhub.com')) {
-      // Extract from URL like https://www.pornhub.com/embedgif/42528191
-      var parts = value.split('/');
-      id = parts[parts.length - 1].split('?')[0];
+    // PH iframes are blocked by X-Frame-Options - must use resolved direct URL
+    if (item.resolvedUrl) {
+      return "<video src='" + item.resolvedUrl + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
     }
-    id = id.replace(/[^a-zA-Z0-9]/g, '');
-    console.log('PornHub id: ' + id);
-    return "<iframe src='https://www.pornhub.com/embedgif/" + id + "' style='width:100%;height:100%;border:none;' allowfullscreen></iframe>";
-  } else if (value.match(/\.(mp4|webm)$/i)) {
+    return "<div style='color:#666;font-size:12px;display:flex;align-items:center;justify-content:center;height:100%'>Failed to load</div>";
+  } else if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     return "<video src='" + value + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
   } else {
-    return "<img src='" + value + "' style='width:100%;height:100%;object-fit:cover;' crossorigin='anonymous'>";
+    return "<img src='" + value + "' style='width:100%;height:100%;object-fit:cover;'>";
   }
 }
 
