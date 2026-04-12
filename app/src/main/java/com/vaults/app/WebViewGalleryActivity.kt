@@ -247,7 +247,7 @@ body { background: #000; }
 .add-btn {
   position: fixed;
   bottom: 24px;
-  right: 24px;
+  right: 80px;
   width: 56px;
   height: 56px;
   background: #ff69b4;
@@ -259,6 +259,50 @@ body { background: #000; }
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   z-index: 100;
 }
+.random-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  background: #2a2a2a;
+  border-radius: 28px;
+  border: none;
+  color: #fff;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 100;
+}
+.edit-controls {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: auto;
+}
+.edit-mode .edit-controls {
+  display: flex;
+}
+.edit-btn {
+  position: absolute;
+  background: rgba(0,0,0,0.7);
+  border: none;
+  color: #fff;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.edit-btn-up { top: 4px; left: 4px; }
+.edit-btn-down { top: 4px; right: 4px; }
+.edit-btn-delete { bottom: 4px; right: 4px; background: rgba(244,67,54,0.8); }
 .empty-msg {
   grid-column: 1/-1;
   text-align: center;
@@ -271,6 +315,7 @@ body { background: #000; }
 <div class="toolbar">
   <button class="back-btn" onclick="Android.goBack()">←</button>
   <span style="color:#ff69b4;font-size:18px;font-weight:bold;">Gallery</span>
+  <button class="edit-toggle" onclick="toggleEditMode()" style="margin-left:auto;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
@@ -278,6 +323,7 @@ body { background: #000; }
   <div class="fullscreen-content" id="fullscreenContent"></div>
 </div>
 <button class="add-btn" onclick="Android.showAddDialog()">+</button>
+<button class="random-btn" onclick="showRandomItem()">🎲</button>
 <script>
 var items = $itemsJson;
 var galleryType = '$galleryType';
@@ -296,9 +342,36 @@ function buildThumbElement(item, index) {
   var thumb = document.createElement('div');
   thumb.className = thumbClass;
   thumb.setAttribute('data-id', item.id);
+  thumb.setAttribute('data-index', index);
 
   var inner = buildMedia(item, false);
   thumb.appendChild(inner);
+
+  // Edit controls (only for Normal and PornHub)
+  if (galleryType === 'NORMAL' || galleryType === 'PORNHUB') {
+    var editControls = document.createElement('div');
+    editControls.className = 'edit-controls';
+    
+    var btnUp = document.createElement('button');
+    btnUp.className = 'edit-btn edit-btn-up';
+    btnUp.innerHTML = '↑';
+    btnUp.onclick = function(e) { e.stopPropagation(); Android.moveItem(item.id, -1); };
+    
+    var btnDown = document.createElement('button');
+    btnDown.className = 'edit-btn edit-btn-down';
+    btnDown.innerHTML = '↓';
+    btnDown.onclick = function(e) { e.stopPropagation(); Android.moveItem(item.id, 1); };
+    
+    var btnDelete = document.createElement('button');
+    btnDelete.className = 'edit-btn edit-btn-delete';
+    btnDelete.innerHTML = '🗑️';
+    btnDelete.onclick = function(e) { e.stopPropagation(); if(confirm('Delete this item?')) Android.deleteItem(item.id); };
+    
+    editControls.appendChild(btnUp);
+    editControls.appendChild(btnDown);
+    editControls.appendChild(btnDelete);
+    thumb.appendChild(editControls);
+  }
 
   thumb.onclick = function() { openFullscreen(index); };
   return thumb;
@@ -307,25 +380,58 @@ function buildThumbElement(item, index) {
 function buildMedia(item, isFullscreen) {
   var value = item.value;
   var type = galleryType;
+  var isEditMode = window.editMode === true;
 
-  if (type === 'REDGIF' || type === 'PORNHUB') {
+  // REDGIF: use inline iframe
+  if (type === 'REDGIF') {
+    var id = value.includes('redgifs.com') ? value.split('/').pop().split('?')[0] : value;
+    id = id.replace(/[^a-zA-Z0-9]/g, '');
+    var wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;padding-bottom:177.78%;width:100%;height:100%;background:#1a1a1a;';
+    var iframe = document.createElement('iframe');
+    iframe.src = 'https://www.redgifs.com/ifr/' + id;
+    iframe.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;border:none;';
+    iframe.setAttribute('allowfullscreen', '');
+    wrapper.appendChild(iframe);
+    return wrapper;
+  }
+
+  // PORNHUB: video with volume control + long press
+  if (type === 'PORNHUB') {
     if (item.resolvedUrl) {
       var v = document.createElement('video');
       v.src = item.resolvedUrl;
       v.autoplay = true;
-      v.muted = true;
+      v.volume = 0.1;
+      v.muted = false;
       v.loop = true;
       v.setAttribute('playsinline', '');
       v.style.cssText = isFullscreen
         ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
         : 'width:100%;height:100%;object-fit:cover;';
+      // Click to increase volume
+      v.onclick = function(e) {
+        if (this.volume < 0.9) {
+          this.volume = Math.round((this.volume + 0.1) * 10) / 10;
+        }
+      };
+      // Long press to open WebView
+      v.oncontextmenu = function(e) {
+        e.preventDefault();
+        var id = value.includes('pornhub.com') ? value.split('/').pop().split('?')[0] : value;
+        id = id.replace(/[^a-zA-Z0-9]/g, '');
+        Android.openInAppUrl('https://www.pornhub.com/gif/' + id);
+      };
       return v;
     }
     var placeholder = document.createElement('div');
     placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;';
     placeholder.textContent = 'Loading...';
     return placeholder;
-  } else if (value.match(/\.(mp4|webm)(\?|$)/i)) {
+  }
+
+  // Normal video
+  if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     var v = document.createElement('video');
     v.src = value;
     v.autoplay = true;
@@ -336,15 +442,16 @@ function buildMedia(item, isFullscreen) {
       ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
       : 'width:100%;height:100%;object-fit:cover;';
     return v;
-  } else {
-    var img = document.createElement('img');
-    img.src = value;
-    img.style.cssText = isFullscreen
-      ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
-      : 'width:100%;height:100%;object-fit:cover;';
-    img.onerror = function() { this.style.opacity = '0.3'; };
-    return img;
   }
+
+  // Normal image
+  var img = document.createElement('img');
+  img.src = value;
+  img.style.cssText = isFullscreen
+    ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
+    : 'width:100%;height:100%;object-fit:cover;';
+  img.onerror = function() { this.style.opacity = '0.3'; };
+  return img;
 }
 
 // Called from Kotlin when a background resolution finishes - swap placeholder for real video
@@ -396,11 +503,45 @@ function openFullscreen(index) {
   // Normal image/video: show inline fullscreen
   content.appendChild(buildMedia(item, true));
   fullscreen.classList.add('active');
+  
+  // Add rotation to fullscreen content for images
+  var rotation = 0;
+  content.onclick = function() {
+    rotation = (rotation + 90) % 360;
+    content.style.transform = 'rotate(' + rotation + 'deg)';
+  };
 }
 
 function closeFullscreen() {
   document.getElementById('fullscreen').classList.remove('active');
   document.getElementById('fullscreenContent').innerHTML = '';
+}
+
+// Edit mode toggle
+function toggleEditMode() {
+  window.editMode = !window.editMode;
+  document.body.classList.toggle('edit-mode', window.editMode);
+}
+
+// Random next with consumable list
+var shownIndices = [];
+function showRandomItem() {
+  if (items.length === 0) return;
+  
+  var available = [];
+  for (var i = 0; i < items.length; i++) {
+    if (!shownIndices.includes(i)) available.push(i);
+  }
+  
+  // Reset when all shown
+  if (available.length === 0) {
+    shownIndices = [];
+    available = [...Array(items.length).keys()];
+  }
+  
+  var randomIndex = available[Math.floor(Math.random() * available.length)];
+  shownIndices.push(randomIndex);
+  openFullscreen(randomIndex);
 }
 
 renderGrid();
@@ -418,6 +559,27 @@ renderGrid();
             lifecycleScope.launch {
                 VaultsApp.instance.db.galleryItemDao().deleteById(itemId)
                 loadGalleryItems()
+            }
+        }
+
+        @JavascriptInterface
+        fun moveItem(itemId: Long, direction: Int) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val items = VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
+                val currentItem = items.find { it.id == itemId }
+                if (currentItem != null) {
+                    val currentIndex = items.indexOf(currentItem)
+                    val newIndex = currentIndex + direction
+                    if (newIndex in items.indices) {
+                        val otherItem = items[newIndex]
+                        val tempSort = currentItem.sortOrder
+                        VaultsApp.instance.db.galleryItemDao().updateSortOrder(itemId, otherItem.sortOrder)
+                        VaultsApp.instance.db.galleryItemDao().updateSortOrder(otherItem.id, tempSort)
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    loadGalleryItems()
+                }
             }
         }
 

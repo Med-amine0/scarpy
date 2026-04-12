@@ -19,6 +19,8 @@ class SettingsActivity : AppCompatActivity() {
 
         setupToolbar()
         loadSettings()
+        setupBackgroundInput()
+        setupChangePin()
     }
 
     private fun setupToolbar() {
@@ -28,6 +30,10 @@ class SettingsActivity : AppCompatActivity() {
     private fun loadSettings() {
         val bgUrl = prefs.getString("background_url", DEFAULT_BG) ?: DEFAULT_BG
         binding.bgInput.setText(bgUrl)
+        
+        val volume = prefs.getInt("default_volume", 10)
+        binding.volumeSlider.progress = volume
+        binding.volumeLabel.text = "$volume%"
     }
 
     private fun setupBackgroundInput() {
@@ -41,6 +47,20 @@ class SettingsActivity : AppCompatActivity() {
             binding.bgInput.setText(DEFAULT_BG)
             prefs.edit().putString("background_url", DEFAULT_BG).apply()
         }
+        
+        binding.volumeSlider.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                binding.volumeLabel.text = "$progress%"
+            }
+            
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {
+                val volume = seekBar?.progress ?: 10
+                prefs.edit().putInt("default_volume", volume).apply()
+                Toast.makeText(this@SettingsActivity, "Volume saved: $volume%", Toast.LENGTH_SHORT).show()
+            }
+        })
     }
 
     private fun setupChangePin() {
