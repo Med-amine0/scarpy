@@ -64,8 +64,11 @@ class WebViewGalleryActivity : AppCompatActivity() {
 
         binding.webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                // Allow all URLs including external ones
-                android.util.Log.d("WebViewGallery", "Loading URL: $url")
+                // Block any top-level navigation away from our local page (e.g. tapping inside a RedGif iframe)
+                if (url != null && !url.startsWith("https://app.vaults.local")) {
+                    android.util.Log.d("WebViewGallery", "Blocked navigation to: $url")
+                    return true
+                }
                 return false
             }
         }
