@@ -19,10 +19,10 @@ class InAppBrowserActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         val url = intent.getStringExtra("url") ?: run { finish(); return }
+        val forceLandscape = intent.getBooleanExtra("landscape", false)
 
-        // Request landscape for PornHub URLs
-        if (url.contains("pornhub.com")) {
-            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        if (forceLandscape) {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
 
         binding.webView.settings.apply {

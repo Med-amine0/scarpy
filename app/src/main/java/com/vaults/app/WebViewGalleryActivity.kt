@@ -553,9 +553,9 @@ function openFullscreen(index) {
     }
   }
   
-  // PornHub: open in InAppBrowserActivity
+  // PornHub: open in InAppBrowserActivity in landscape
   if (type === 'PORNHUB' && item.resolvedUrl) {
-    Android.openInAppUrl(item.resolvedUrl);
+    Android.openInAppUrl(item.resolvedUrl, true);
     return;
   }
 
@@ -650,9 +650,10 @@ renderGrid();
         }
 
         @JavascriptInterface
-        fun openInAppUrl(url: String) {
+        fun openInAppUrl(url: String, landscape: Boolean = false) {
             val intent = android.content.Intent(context, InAppBrowserActivity::class.java)
             intent.putExtra("url", url)
+            intent.putExtra("landscape", landscape)
             context.startActivity(intent)
         }
 
