@@ -155,7 +155,7 @@ body { background: #000; display: flex; justify-content: center; align-items: ce
 
     private fun loadThumbnailGridFast(itemsJson: String, defaultVolume: Int) {
         val galleryType = this.galleryType.name
-        
+
         val html = """
 <!DOCTYPE html>
 <html>
@@ -182,16 +182,16 @@ body { background: #000; }
   padding: 8px;
   margin-right: 12px;
 }
-.thumb-grid { 
-  display: grid; 
-  grid-template-columns: repeat(var(--cols, 3), 1fr); 
-  gap: 4px; 
-  padding: 4px; 
+.thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), 1fr);
+  gap: 4px;
+  padding: 4px;
 }
-.thumb { 
-  position: relative; 
+.thumb {
+  position: relative;
   border-radius: 12px;
-  overflow: hidden; 
+  overflow: hidden;
   background: #1a1a1a;
   cursor: pointer;
 }
@@ -205,10 +205,8 @@ body { background: #000; }
 }
 .fullscreen {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
   background: #000;
   display: none;
   justify-content: center;
@@ -222,22 +220,12 @@ body { background: #000; }
   display: flex;
   justify-content: center;
   align-items: center;
-  transform-origin: center;
-}
-.fullscreen-content video,
-.fullscreen-content img {
-  width: 100%;
-  height: auto;
-  max-height: 100%;
-  object-fit: contain;
-  display: block;
+  overflow: hidden;
 }
 .close-btn {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 48px;
-  height: 48px;
+  top: 16px; right: 16px;
+  width: 48px; height: 48px;
   background: rgba(255,255,255,0.2);
   border-radius: 24px;
   border: none;
@@ -248,10 +236,8 @@ body { background: #000; }
 }
 .add-btn {
   position: fixed;
-  bottom: 24px;
-  right: 80px;
-  width: 56px;
-  height: 56px;
+  bottom: 24px; right: 80px;
+  width: 56px; height: 56px;
   background: #ff69b4;
   border-radius: 28px;
   border: none;
@@ -264,10 +250,8 @@ body { background: #000; }
 .random-btn {
   display: none;
   position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 56px;
-  height: 56px;
+  bottom: 24px; right: 24px;
+  width: 56px; height: 56px;
   background: #2a2a2a;
   border-radius: 28px;
   border: none;
@@ -281,22 +265,16 @@ body { background: #000; }
 .edit-controls {
   display: none;
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
   pointer-events: auto;
 }
-.edit-mode .edit-controls {
-  display: flex;
-}
+.edit-mode .edit-controls { display: flex; }
 .edit-btn {
   position: absolute;
   background: rgba(0,0,0,0.7);
   border: none;
   color: #fff;
-  width: 28px;
-  height: 28px;
+  width: 28px; height: 28px;
   border-radius: 14px;
   cursor: pointer;
   font-size: 14px;
@@ -319,8 +297,8 @@ body { background: #000; }
 <div class="toolbar">
   <button class="back-btn" onclick="Android.goBack()">←</button>
   <span style="color:#ff69b4;font-size:18px;font-weight:bold;">Gallery</span>
-  <button class="unmute-btn" id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;">🔇</button>
-  <button class="edit-toggle" onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
+  <button id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;">🔇</button>
+  <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
@@ -335,162 +313,122 @@ var galleryType = '$galleryType';
 var defaultVolume = $defaultVolume;
 var isMuted = true;
 
-// Show unmute button only for PORNHUB and REDGIF
 if (galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
   document.getElementById('unmuteBtn').style.display = 'block';
 }
 
-// Toggle mute for all videos in gallery
 function toggleMuteAll() {
   isMuted = !isMuted;
-  var videos = document.querySelectorAll('.thumb video');
-  videos.forEach(function(v) {
+  document.querySelectorAll('.thumb video').forEach(function(v) {
     v.muted = isMuted;
     if (!isMuted) v.volume = defaultVolume / 100;
   });
   document.getElementById('unmuteBtn').textContent = isMuted ? '🔇' : '🔊';
 }
 
-// Set columns and thumb shape based on type
 var grid = document.getElementById('grid');
-if (galleryType === 'PORNHUB') {
+if (galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
   grid.style.setProperty('--cols', '2');
 } else {
   grid.style.setProperty('--cols', '3');
 }
 var thumbClass = (galleryType === 'PORNHUB') ? 'thumb landscape' : 'thumb portrait';
 
-// Build all thumb elements once and keep them alive - never recreate
 function buildThumbElement(item, index) {
   var thumb = document.createElement('div');
   thumb.className = thumbClass;
   thumb.setAttribute('data-id', item.id);
   thumb.setAttribute('data-index', index);
+  thumb.appendChild(buildMedia(item, false));
 
-  var inner = buildMedia(item, false);
-  thumb.appendChild(inner);
-
-  // Edit controls (only for Normal and PornHub)
   if (galleryType === 'NORMAL' || galleryType === 'PORNHUB') {
-    var editControls = document.createElement('div');
-    editControls.className = 'edit-controls';
-    
-    var btnUp = document.createElement('button');
-    btnUp.className = 'edit-btn edit-btn-up';
-    btnUp.innerHTML = '↑';
-    btnUp.onclick = function(e) { e.stopPropagation(); Android.moveItem(item.id, -1); };
-    
-    var btnDown = document.createElement('button');
-    btnDown.className = 'edit-btn edit-btn-down';
-    btnDown.innerHTML = '↓';
-    btnDown.onclick = function(e) { e.stopPropagation(); Android.moveItem(item.id, 1); };
-    
-    var btnDelete = document.createElement('button');
-    btnDelete.className = 'edit-btn edit-btn-delete';
-    btnDelete.innerHTML = '🗑️';
-    btnDelete.onclick = function(e) { e.stopPropagation(); if(confirm('Delete this item?')) Android.deleteItem(item.id); };
-    
-    editControls.appendChild(btnUp);
-    editControls.appendChild(btnDown);
-    editControls.appendChild(btnDelete);
-    thumb.appendChild(editControls);
+    var ec = document.createElement('div');
+    ec.className = 'edit-controls';
+    var bu = document.createElement('button'); bu.className = 'edit-btn edit-btn-up'; bu.innerHTML = '↑';
+    bu.onclick = function(e) { e.stopPropagation(); Android.moveItem(item.id, -1); };
+    var bd = document.createElement('button'); bd.className = 'edit-btn edit-btn-down'; bd.innerHTML = '↓';
+    bd.onclick = function(e) { e.stopPropagation(); Android.moveItem(item.id, 1); };
+    var bx = document.createElement('button'); bx.className = 'edit-btn edit-btn-delete'; bx.innerHTML = '🗑️';
+    bx.onclick = function(e) { e.stopPropagation(); if(confirm('Delete?')) Android.deleteItem(item.id); };
+    ec.appendChild(bu); ec.appendChild(bd); ec.appendChild(bx);
+    thumb.appendChild(ec);
   }
 
-  thumb.onclick = function() { openFullscreen(index); };
+  if (galleryType === 'REDGIF') {
+    // Transparent overlay catches 1st tap → expand. Removed after expand so 2nd tap hits iframe → InAppBrowser.
+    thumb.appendChild(makeOverlay(index));
+  } else {
+    thumb.onclick = function() { openFullscreen(index); };
+  }
   return thumb;
+}
+
+function makeOverlay(index) {
+  var ov = document.createElement('div');
+  ov.className = 'redgif-overlay';
+  ov.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;cursor:pointer;';
+  ov.onclick = (function(i) { return function(e) { e.stopPropagation(); openFullscreen(i); }; })(index);
+  return ov;
 }
 
 function buildMedia(item, isFullscreen) {
   var value = item.value;
   var type = galleryType;
-  var isEditMode = window.editMode === true;
 
-  // REDGIF: use inline iframe with flexbox centering
   if (type === 'REDGIF') {
     var id = value.includes('redgifs.com') ? value.split('/').pop().split('?')[0] : value;
     id = id.replace(/[^a-zA-Z0-9]/g, '');
-    var wrapper = document.createElement('div');
-    wrapper.style.cssText = 'display:flex;justify-content:center;align-items:center;width:100%;height:100%;background:#1a1a1a;';
-    var iframe = document.createElement('iframe');
-    iframe.src = 'https://www.redgifs.com/ifr/' + id;
-    iframe.style.cssText = 'width:100%;height:100%;border:none;max-width:300px;';
-    iframe.setAttribute('allowfullscreen', '');
-    wrapper.appendChild(iframe);
-    return wrapper;
+    var w = document.createElement('div');
+    w.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
+    var f = document.createElement('iframe');
+    f.src = 'https://www.redgifs.com/ifr/' + id;
+    f.style.cssText = 'width:100%;height:100%;border:none;';
+    f.setAttribute('allowfullscreen', '');
+    w.appendChild(f);
+    return w;
   }
 
-  // PORNHUB: video with volume control + long press
   if (type === 'PORNHUB') {
     if (item.resolvedUrl) {
       var v = document.createElement('video');
       v.src = item.resolvedUrl;
-      v.autoplay = true;
+      v.autoplay = true; v.muted = true; v.loop = true;
       v.volume = defaultVolume / 100;
-      v.muted = true;
-      v.loop = true;
       v.setAttribute('playsinline', '');
-      v.style.cssText = isFullscreen
-        ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
-        : 'width:100%;height:100%;object-fit:cover;';
-      // Click to adjust volume per-clip in fullscreen
-      if (isFullscreen) {
-        v.onclick = function(e) {
-          e.stopPropagation();
-          if (e.clientX < window.innerWidth / 2) {
-            this.volume = Math.max(0, this.volume - 0.1);
-          } else {
-            this.volume = Math.min(1, this.volume + 0.1);
-          }
-        };
-      }
-      // Long press to open WebView
-      v.oncontextmenu = function(e) {
-        e.preventDefault();
-        var id = value.includes('pornhub.com') ? value.split('/').pop().split('?')[0] : value;
-        id = id.replace(/[^a-zA-Z0-9]/g, '');
-        Android.openInAppUrl('https://www.pornhub.com/gif/' + id);
-      };
+      v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
       return v;
     }
-    var placeholder = document.createElement('div');
-    placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;';
-    placeholder.textContent = 'Loading...';
-    return placeholder;
+    var p = document.createElement('div');
+    p.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;';
+    p.textContent = 'Loading...';
+    return p;
   }
 
-  // Normal video
   if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     var v = document.createElement('video');
-    v.src = value;
-    v.autoplay = true;
-    v.muted = true;
-    v.loop = true;
+    v.src = value; v.autoplay = true; v.muted = true; v.loop = true;
     v.setAttribute('playsinline', '');
-    v.style.cssText = isFullscreen
-      ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
-      : 'width:100%;height:100%;object-fit:cover;';
+    v.style.cssText = isFullscreen ? 'width:100%;height:auto;object-fit:contain;display:block;' : 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
 
-  // Normal image
   var img = document.createElement('img');
   img.src = value;
   img.style.cssText = isFullscreen
-    ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
+    ? 'width:100%;height:auto;display:block;'
     : 'width:100%;height:100%;object-fit:cover;';
   img.onerror = function() { this.style.opacity = '0.3'; };
   return img;
 }
 
-// Called from Kotlin when a background resolution finishes - swap placeholder for real video
 function injectResolvedUrl(itemId, url) {
   for (var i = 0; i < items.length; i++) {
     if (items[i].id == itemId) {
       items[i].resolvedUrl = url;
       var cell = document.querySelector('[data-id="' + itemId + '"]');
       if (cell) {
-        cell.innerHTML = '';
-        cell.appendChild(buildMedia(items[i], false));
+        var firstChild = cell.firstChild;
+        if (firstChild) cell.replaceChild(buildMedia(items[i], false), firstChild);
       }
       break;
     }
@@ -503,9 +441,7 @@ function renderGrid() {
     grid.innerHTML = '<div class="empty-msg">No items yet. Tap + to add URLs.</div>';
     return;
   }
-  items.forEach(function(item, index) {
-    grid.appendChild(buildThumbElement(item, index));
-  });
+  items.forEach(function(item, index) { grid.appendChild(buildThumbElement(item, index)); });
 }
 
 function openFullscreen(index) {
@@ -513,96 +449,132 @@ function openFullscreen(index) {
   var type = galleryType;
   var content = document.getElementById('fullscreenContent');
   var fullscreen = document.getElementById('fullscreen');
-
   content.innerHTML = '';
 
-  // RedGif: 1st click expands inline, 2nd click opens InAppBrowserActivity
   if (type === 'REDGIF') {
     var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
     id = id.replace(/[^a-zA-Z0-9]/g, '');
-    
-    if (!item.wasExpanded) {
-      // First click: expand inline
-      item.wasExpanded = true;
+    var thumb = document.querySelector('[data-index="' + index + '"]');
+
+    // Remove overlay so next tap hits iframe → InAppBrowser
+    if (thumb) { var ov = thumb.querySelector('.redgif-overlay'); if (ov) ov.remove(); }
+
+    var w = document.createElement('div');
+    w.style.cssText = 'width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:#000;';
+    var f = document.createElement('iframe');
+    f.src = 'https://www.redgifs.com/ifr/' + id;
+    f.style.cssText = 'width:100%;height:100%;border:none;';
+    f.setAttribute('allowfullscreen', '');
+    w.appendChild(f);
+    content.appendChild(w);
+
+    // X button to collapse and restore overlay
+    var xBtn = document.createElement('button');
+    xBtn.textContent = '×';
+    xBtn.style.cssText = 'position:absolute;top:16px;left:16px;width:48px;height:48px;background:rgba(255,255,255,0.2);border-radius:24px;border:none;color:#fff;font-size:24px;cursor:pointer;z-index:1001;';
+    xBtn.onclick = function() {
+      if (thumb && !thumb.querySelector('.redgif-overlay')) thumb.appendChild(makeOverlay(index));
+      xBtn.remove();
+      fullscreen.classList.remove('active');
       content.innerHTML = '';
-      var wrapper = document.createElement('div');
-      wrapper.style.cssText = 'width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:#000;';
-      var iframe = document.createElement('iframe');
-      iframe.src = 'https://www.redgifs.com/ifr/' + id;
-      iframe.style.cssText = 'width:100%;height:100%;max-width:500px;border:none;';
-      iframe.setAttribute('allowfullscreen', '');
-      wrapper.appendChild(iframe);
-      content.appendChild(wrapper);
-      fullscreen.classList.add('active');
-      
-      // Click on expanded content opens InAppBrowser - but NOT on the close button
-      var closeBtn = document.querySelector('.close-btn');
-      content.onclick = function(e) {
-        if (e.target === closeBtn || closeBtn.contains(e.target)) return;
-        if (item.wasExpanded) {
-          Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
-          item.wasExpanded = false;
-        }
-      };
-      return;
-    } else {
-      // Second click: open InAppBrowserActivity
-      Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
-      item.wasExpanded = false;
-      return;
-    }
+    };
+    fullscreen.appendChild(xBtn);
+    fullscreen.classList.add('active');
+    return;
   }
-  
-  // PornHub: open in InAppBrowserActivity in landscape
+
   if (type === 'PORNHUB' && item.resolvedUrl) {
     Android.openInAppUrl(item.resolvedUrl, true);
     return;
   }
 
-  // Normal image/video: inline fullscreen
-  content.appendChild(buildMedia(item, true));
+  // Normal image/video fullscreen
+  var media = buildMedia(item, true);
+  content.appendChild(media);
   fullscreen.classList.add('active');
-  
-  // Add rotation for images
-  var rotation = 0;
-  content.onclick = function() {
-    rotation = (rotation + 90) % 360;
-    content.style.transform = 'rotate(' + rotation + 'deg)';
-    var img = content.querySelector('img');
-    if (img) { img.style.objectFit = 'contain'; }
-  };
+
+  if (media.tagName === 'IMG') {
+    var rotation = 0, panX = 0, panY = 0;
+    var startX = 0, startY = 0, didPan = false;
+
+    function applyTransform() {
+      var sideways = rotation === 90 || rotation === 270;
+      // Always fill width; when rotated 90/270 swap axes
+      media.style.width = sideways ? (window.innerHeight + 'px') : '100%';
+      media.style.height = 'auto';
+      media.style.maxWidth = 'none';
+      media.style.maxHeight = 'none';
+      media.style.transform = 'rotate(' + rotation + 'deg) translate(' + panX + 'px,' + panY + 'px)';
+    }
+
+    content.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      panX = panX; panY = panY;
+      didPan = false;
+    }, {passive: true});
+
+    content.addEventListener('touchmove', function(e) {
+      if (e.touches.length !== 1) return;
+      var dx = e.touches[0].clientX - startX;
+      var dy = e.touches[0].clientY - startY;
+      if (!didPan && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      e.preventDefault();
+      didPan = true;
+      var newX = panX + dx;
+      var newY = panY + dy;
+      // Clamp: image can pan up to half its own size from center
+      var hw = media.offsetWidth / 2;
+      var hh = media.offsetHeight / 2;
+      panX = Math.max(-hw, Math.min(hw, newX));
+      panY = Math.max(-hh, Math.min(hh, newY));
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      applyTransform();
+    }, {passive: false});
+
+    content.addEventListener('touchend', function() {
+      if (!didPan) {
+        // Tap = rotate
+        rotation = (rotation + 90) % 360;
+        panX = 0; panY = 0;
+        applyTransform();
+      }
+    });
+
+    applyTransform();
+  }
 }
 
 function closeFullscreen() {
+  // Restore any RedGif overlays that were removed
+  if (galleryType === 'REDGIF') {
+    document.querySelectorAll('[data-index]').forEach(function(thumb) {
+      if (!thumb.querySelector('.redgif-overlay')) {
+        thumb.appendChild(makeOverlay(parseInt(thumb.getAttribute('data-index'))));
+      }
+    });
+  }
+  // Remove any extra X buttons
+  document.querySelectorAll('#fullscreen button:not(.close-btn):not(.random-btn)').forEach(function(b){ b.remove(); });
   document.getElementById('fullscreen').classList.remove('active');
   document.getElementById('fullscreenContent').innerHTML = '';
 }
 
-// Edit mode toggle
 function toggleEditMode() {
   window.editMode = !window.editMode;
   document.body.classList.toggle('edit-mode', window.editMode);
 }
 
-// Random next with consumable list
 var shownIndices = [];
 function showRandomItem() {
   if (items.length === 0) return;
-  
-  var available = [];
-  for (var i = 0; i < items.length; i++) {
-    if (!shownIndices.includes(i)) available.push(i);
-  }
-  
-  // Reset when all shown
-  if (available.length === 0) {
-    shownIndices = [];
-    available = [...Array(items.length).keys()];
-  }
-  
-  var randomIndex = available[Math.floor(Math.random() * available.length)];
-  shownIndices.push(randomIndex);
-  openFullscreen(randomIndex);
+  var available = items.map(function(_,i){ return i; }).filter(function(i){ return !shownIndices.includes(i); });
+  if (available.length === 0) { shownIndices = []; available = items.map(function(_,i){ return i; }); }
+  var pick = available[Math.floor(Math.random() * available.length)];
+  shownIndices.push(pick);
+  openFullscreen(pick);
 }
 
 renderGrid();
@@ -613,6 +585,7 @@ renderGrid();
 
         binding.webView.loadDataWithBaseURL("https://app.vaults.local", html, "text/html", "UTF-8", null)
     }
+
 
     inner class Bridge(private val context: Context) {
         @JavascriptInterface
