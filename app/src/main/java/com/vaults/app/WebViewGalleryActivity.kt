@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -35,6 +36,9 @@ class WebViewGalleryActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge: draw behind status bar
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
         binding = ActivityWebviewGalleryBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -168,6 +172,7 @@ body { background: #000; }
   display: flex;
   align-items: center;
   padding: 12px;
+  padding-top: calc(12px + env(safe-area-inset-top));
   background: #1e1e1e;
   position: sticky;
   top: 0;
@@ -219,8 +224,8 @@ body { background: #000; }
   height: 100%;
   display: flex;
   justify-content: center;
-  align-items: center;
-  overflow: hidden;
+  align-items: flex-start;
+  overflow-y: auto;
 }
 .close-btn {
   position: absolute;
@@ -382,7 +387,7 @@ function buildMedia(item, isFullscreen) {
     w.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
     var f = document.createElement('iframe');
     f.src = 'https://www.redgifs.com/ifr/' + id;
-    f.style.cssText = 'width:100%;height:100%;border:none;';
+    f.style.cssText = 'width:100%;height:100%;border:none;display:block;';
     f.setAttribute('allowfullscreen', '');
     w.appendChild(f);
     return w;
@@ -396,6 +401,18 @@ function buildMedia(item, isFullscreen) {
       v.volume = defaultVolume / 100;
       v.setAttribute('playsinline', '');
       v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+      // Long-press to open PH gif page
+      if (!isFullscreen) {
+        var pressTimer = null;
+        v.addEventListener('touchstart', function(e) {
+          pressTimer = setTimeout(function() {
+            var id = item.value.replace(/[^a-zA-Z0-9]/g, '');
+            Android.openInAppUrl('https://www.pornhub.com/gif/' + id, false);
+          }, 600);
+        });
+        v.addEventListener('touchend', function() { clearTimeout(pressTimer); });
+        v.addEventListener('touchmove', function() { clearTimeout(pressTimer); });
+      }
       return v;
     }
     var p = document.createElement('div');
@@ -414,8 +431,9 @@ function buildMedia(item, isFullscreen) {
 
   var img = document.createElement('img');
   img.src = value;
+  // Always 100% width, height auto — no overflow, no pan needed
   img.style.cssText = isFullscreen
-    ? 'width:100%;height:auto;display:block;'
+    ? 'width:100%;height:auto;display:block;max-width:100%;'
     : 'width:100%;height:100%;object-fit:cover;';
   img.onerror = function() { this.style.opacity = '0.3'; };
   return img;
@@ -494,53 +512,25 @@ function openFullscreen(index) {
   fullscreen.classList.add('active');
 
   if (media.tagName === 'IMG') {
-    var rotation = 0, panX = 0, panY = 0;
-    var startX = 0, startY = 0, didPan = false;
+    var rotation = 0;
 
     function applyTransform() {
-      var sideways = rotation === 90 || rotation === 270;
-      // Always fill width; when rotated 90/270 swap axes
-      media.style.width = sideways ? (window.innerHeight + 'px') : '100%';
-      media.style.height = 'auto';
-      media.style.maxWidth = 'none';
-      media.style.maxHeight = 'none';
-      media.style.transform = 'rotate(' + rotation + 'deg) translate(' + panX + 'px,' + panY + 'px)';
+      // Always fill screen width. When rotated 90/270, use vw=100vh equivalent
+      if (rotation === 90 || rotation === 270) {
+        media.style.width = window.innerHeight + 'px';
+        media.style.height = 'auto';
+        media.style.maxWidth = 'none';
+      } else {
+        media.style.width = '100%';
+        media.style.height = 'auto';
+        media.style.maxWidth = '100%';
+      }
+      media.style.transform = 'rotate(' + rotation + 'deg)';
     }
 
-    content.addEventListener('touchstart', function(e) {
-      if (e.touches.length !== 1) return;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      panX = panX; panY = panY;
-      didPan = false;
-    }, {passive: true});
-
-    content.addEventListener('touchmove', function(e) {
-      if (e.touches.length !== 1) return;
-      var dx = e.touches[0].clientX - startX;
-      var dy = e.touches[0].clientY - startY;
-      if (!didPan && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-      e.preventDefault();
-      didPan = true;
-      var newX = panX + dx;
-      var newY = panY + dy;
-      // Clamp: image can pan up to half its own size from center
-      var hw = media.offsetWidth / 2;
-      var hh = media.offsetHeight / 2;
-      panX = Math.max(-hw, Math.min(hw, newX));
-      panY = Math.max(-hh, Math.min(hh, newY));
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
+    content.addEventListener('click', function() {
+      rotation = (rotation + 90) % 360;
       applyTransform();
-    }, {passive: false});
-
-    content.addEventListener('touchend', function() {
-      if (!didPan) {
-        // Tap = rotate
-        rotation = (rotation + 90) % 360;
-        panX = 0; panY = 0;
-        applyTransform();
-      }
     });
 
     applyTransform();
@@ -613,6 +603,43 @@ renderGrid();
                 }
                 withContext(Dispatchers.Main) {
                     loadGalleryItems()
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun getPornhubGalleries(): String {
+            val galleries = runBlocking {
+                withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryDao().getRootGalleriesOnce()
+                        .filter { it.type == com.vaults.app.db.GalleryType.PORNHUB }
+                }
+            }
+            val arr = org.json.JSONArray()
+            galleries.forEach { g ->
+                arr.put(org.json.JSONObject().apply {
+                    put("id", g.id)
+                    put("name", g.name)
+                })
+            }
+            return arr.toString()
+        }
+
+        @JavascriptInterface
+        fun addItemToGallery(targetGalleryId: Long, value: String) {
+            lifecycleScope.launch {
+                val existing = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().getExistingValues(targetGalleryId).toSet()
+                }
+                if (value in existing) return@launch
+                val currentMax = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().getItemsOnce(targetGalleryId)
+                        .maxOfOrNull { it.sortOrder } ?: -1
+                }
+                withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().insert(
+                        GalleryItem(galleryId = targetGalleryId, value = value, sortOrder = currentMax + 1)
+                    )
                 }
             }
         }
