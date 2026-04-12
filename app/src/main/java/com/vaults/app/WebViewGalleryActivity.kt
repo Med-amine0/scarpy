@@ -319,7 +319,7 @@ body { background: #000; }
 <div class="toolbar">
   <button class="back-btn" onclick="Android.goBack()">←</button>
   <span style="color:#ff69b4;font-size:18px;font-weight:bold;">Gallery</span>
-  <button class="unmute-btn" id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-right:8px;">🔇</button>
+  <button class="unmute-btn" id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;">🔇</button>
   <button class="edit-toggle" onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
@@ -405,15 +405,15 @@ function buildMedia(item, isFullscreen) {
   var type = galleryType;
   var isEditMode = window.editMode === true;
 
-  // REDGIF: use inline iframe
+  // REDGIF: use inline iframe with flexbox centering
   if (type === 'REDGIF') {
     var id = value.includes('redgifs.com') ? value.split('/').pop().split('?')[0] : value;
     id = id.replace(/[^a-zA-Z0-9]/g, '');
     var wrapper = document.createElement('div');
-    wrapper.style.cssText = 'position:relative;padding-bottom:177.78%;width:100%;height:100%;background:#1a1a1a;';
+    wrapper.style.cssText = 'display:flex;justify-content:center;align-items:center;width:100%;height:100%;background:#1a1a1a;';
     var iframe = document.createElement('iframe');
     iframe.src = 'https://www.redgifs.com/ifr/' + id;
-    iframe.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;border:none;';
+    iframe.style.cssText = 'width:100%;height:100%;border:none;max-width:300px;';
     iframe.setAttribute('allowfullscreen', '');
     wrapper.appendChild(iframe);
     return wrapper;
@@ -522,6 +522,7 @@ function openFullscreen(index) {
     id = id.replace(/[^a-zA-Z0-9]/g, '');
     
     if (!item.wasExpanded) {
+      // First click: expand inline
       item.wasExpanded = true;
       content.innerHTML = '';
       var wrapper = document.createElement('div');
@@ -533,26 +534,28 @@ function openFullscreen(index) {
       wrapper.appendChild(iframe);
       content.appendChild(wrapper);
       fullscreen.classList.add('active');
+      
+      // Click on expanded content opens InAppBrowser - but NOT on the close button
+      var closeBtn = document.querySelector('.close-btn');
       content.onclick = function(e) {
+        if (e.target === closeBtn || closeBtn.contains(e.target)) return;
         if (item.wasExpanded) {
           Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
           item.wasExpanded = false;
-          closeFullscreen();
         }
       };
       return;
     } else {
+      // Second click: open InAppBrowserActivity
       Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
       item.wasExpanded = false;
       return;
     }
   }
   
-  // PornHub: inline fullscreen with landscape
+  // PornHub: open in InAppBrowserActivity
   if (type === 'PORNHUB' && item.resolvedUrl) {
-    Android.requestLandscape();
-    content.appendChild(buildMedia(item, true));
-    fullscreen.classList.add('active');
+    Android.openInAppUrl(item.resolvedUrl);
     return;
   }
 
@@ -573,11 +576,6 @@ function openFullscreen(index) {
 function closeFullscreen() {
   document.getElementById('fullscreen').classList.remove('active');
   document.getElementById('fullscreenContent').innerHTML = '';
-  if (galleryType === 'PORNHUB') {
-    Android.resetOrientation();
-    isMuted = true;
-    document.getElementById('unmuteBtn').textContent = '🔇';
-  }
 }
 
 // Edit mode toggle
@@ -656,16 +654,6 @@ renderGrid();
             val intent = android.content.Intent(context, InAppBrowserActivity::class.java)
             intent.putExtra("url", url)
             context.startActivity(intent)
-        }
-
-        @JavascriptInterface
-        fun requestLandscape() {
-            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        }
-
-        @JavascriptInterface
-        fun resetOrientation() {
-            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
 
         @JavascriptInterface
