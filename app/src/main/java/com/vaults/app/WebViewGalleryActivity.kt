@@ -15,6 +15,8 @@ import com.vaults.app.db.GalleryItem
 import com.vaults.app.db.GalleryType
 import com.vaults.app.scraper.MediaResolver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -54,6 +56,8 @@ class WebViewGalleryActivity : AppCompatActivity() {
             blockNetworkImage = false
             blockNetworkLoads = false
             cacheMode = WebSettings.LOAD_NO_CACHE
+            userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+            mediaPlaybackRequiresUserGesture = false
         }
 
         binding.webView.webChromeClient = object : WebChromeClient() {
@@ -96,25 +100,23 @@ class WebViewGalleryActivity : AppCompatActivity() {
             // Render grid immediately with whatever we have cached
             loadThumbnailGridFast(itemsJson.toString())
 
-            // Resolve uncached PH/RedGif items in background, inject into page as they complete
+            // Resolve uncached PH/RedGif items in parallel, inject into page as each finishes
             if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
                 val uncached = items.filter { it.resolvedUrl == null }
-                uncached.forEach { item ->
-                    val resolved = withContext(Dispatchers.IO) {
-                        MediaResolver.resolve(type, item.value)
-                    }
-                    if (resolved.url != null) {
-                        // Save to DB cache
-                        withContext(Dispatchers.IO) {
+                uncached.map { item ->
+                    async(Dispatchers.IO) {
+                        val resolved = MediaResolver.resolve(type, item.value)
+                        if (resolved.url != null) {
                             VaultsApp.instance.db.galleryItemDao().updateResolvedUrl(item.id, resolved.url)
+                            val escapedUrl = resolved.url.replace("'", "\\'")
+                            withContext(Dispatchers.Main) {
+                                binding.webView.evaluateJavascript(
+                                    "injectResolvedUrl(${item.id}, '$escapedUrl');", null
+                                )
+                            }
                         }
-                        // Inject into live page
-                        val escapedUrl = resolved.url.replace("'", "\\'")
-                        binding.webView.evaluateJavascript(
-                            "injectResolvedUrl(${item.id}, '$escapedUrl');", null
-                        )
                     }
-                }
+                }.awaitAll()
             }
         }
     }
@@ -165,18 +167,19 @@ body { background: #000; }
 }
 .thumb-grid { 
   display: grid; 
-  grid-template-columns: repeat(3, 1fr); 
+  grid-template-columns: repeat(var(--cols, 3), 1fr); 
   gap: 4px; 
   padding: 4px; 
 }
 .thumb { 
   position: relative; 
-  aspect-ratio: 3/4; 
   border-radius: 12px;
   overflow: hidden; 
   background: #1a1a1a;
   cursor: pointer;
 }
+.thumb.portrait { aspect-ratio: 3/4; }
+.thumb.landscape { aspect-ratio: 16/9; }
 .thumb > div, .thumb iframe, .thumb video, .thumb img {
   width: 100%;
   height: 100%;
@@ -263,17 +266,20 @@ var items = $itemsJson;
 var galleryType = '$galleryType';
 var rotation = 0;
 
-function getHtml(item, forFullscreen) {
+// Set columns and thumb shape based on type
+var grid = document.getElementById('grid');
+if (galleryType === 'PORNHUB') {
+  grid.style.setProperty('--cols', '2');
+} else {
+  grid.style.setProperty('--cols', '3');
+}
+var thumbClass = (galleryType === 'PORNHUB') ? 'thumb landscape' : 'thumb portrait';
+
+function getHtml(item) {
   var value = item.value;
   var type = galleryType;
 
-  if (type === 'REDGIF') {
-    if (item.resolvedUrl) {
-      return "<video src='" + item.resolvedUrl + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
-    }
-    // Not resolved yet - show spinner
-    return "<div style='display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;'>Loading...</div>";
-  } else if (type === 'PORNHUB') {
+  if (type === 'REDGIF' || type === 'PORNHUB') {
     if (item.resolvedUrl) {
       return "<video src='" + item.resolvedUrl + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
     }
@@ -281,26 +287,23 @@ function getHtml(item, forFullscreen) {
   } else if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     return "<video src='" + value + "' autoplay muted loop playsinline style='width:100%;height:100%;object-fit:cover;'></video>";
   } else {
-    return "<img src='" + value + "' style='width:100%;height:100%;object-fit:cover;' loading='lazy'>";
+    return "<img src='" + value + "' referrerpolicy='no-referrer' style='width:100%;height:100%;object-fit:cover;' loading='lazy'>";
   }
 }
 
 // Called from Kotlin when a background resolution finishes
 function injectResolvedUrl(itemId, url) {
-  // Update item in array
   for (var i = 0; i < items.length; i++) {
     if (items[i].id === itemId) {
       items[i].resolvedUrl = url;
+      var cell = document.querySelector('[data-id="' + itemId + '"]');
+      if (cell) cell.innerHTML = getHtml(items[i]);
       break;
     }
   }
-  // Update the thumb cell in the grid
-  var cell = document.querySelector('[data-id="' + itemId + '"]');
-  if (cell) cell.innerHTML = getHtml(items.find(function(x){ return x.id === itemId; }));
 }
 
 function renderGrid() {
-  var grid = document.getElementById('grid');
   grid.innerHTML = '';
 
   if (items.length === 0) {
@@ -310,12 +313,11 @@ function renderGrid() {
 
   items.forEach(function(item, index) {
     var thumb = document.createElement('div');
-    thumb.className = 'thumb';
+    thumb.className = thumbClass;
     thumb.setAttribute('data-id', item.id);
-    thumb.innerHTML = getHtml(item, false);
+    thumb.innerHTML = getHtml(item);
     thumb.onclick = function() {
       if (galleryType === 'REDGIF' && item.resolvedUrl) {
-        // Open RedGif in-app via bridge (shows full iframe in overlay inside app)
         var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
         id = id.replace(/[^a-zA-Z0-9]/g, '');
         Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
@@ -333,7 +335,7 @@ function openFullscreen(index) {
   var fullscreen = document.getElementById('fullscreen');
   rotation = 0;
   content.style.transform = 'rotate(0deg)';
-  content.innerHTML = getHtml(item, true);
+  content.innerHTML = getHtml(item);
   fullscreen.classList.add('active');
 }
 
