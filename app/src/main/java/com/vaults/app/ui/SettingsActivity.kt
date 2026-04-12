@@ -31,7 +31,7 @@ class SettingsActivity : AppCompatActivity() {
         val bgUrl = prefs.getString("background_url", DEFAULT_BG) ?: DEFAULT_BG
         binding.bgInput.setText(bgUrl)
         
-        val volume = prefs.getInt("default_volume", 10)
+        val volume = prefs.getInt("default_volume", 5)
         binding.volumeSlider.progress = volume
         binding.volumeLabel.text = "$volume%"
     }

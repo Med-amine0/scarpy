@@ -26,6 +26,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
     private lateinit var binding: ActivityWebviewGalleryBinding
     private var galleryId: Long = 0
     private var galleryType: GalleryType = GalleryType.NORMAL
+    private val prefs by lazy { getSharedPreferences("vaults_prefs", Context.MODE_PRIVATE) }
 
     companion object {
         const val EXTRA_GALLERY_ID = "gallery_id"
@@ -108,7 +109,8 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
 
             // Render grid immediately with whatever we have cached
-            loadThumbnailGridFast(itemsJson.toString())
+            val defaultVolume = prefs.getInt("default_volume", 5)
+            loadThumbnailGridFast(itemsJson.toString(), defaultVolume)
 
             // Resolve uncached/expired items in parallel, inject into page as each finishes
             if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
@@ -151,7 +153,7 @@ body { background: #000; display: flex; justify-content: center; align-items: ce
 </html>
     """.trimIndent()
 
-    private fun loadThumbnailGridFast(itemsJson: String) {
+    private fun loadThumbnailGridFast(itemsJson: String, defaultVolume: Int) {
         val galleryType = this.galleryType.name
         
         val html = """
@@ -260,6 +262,7 @@ body { background: #000; }
   z-index: 100;
 }
 .random-btn {
+  display: none;
   position: fixed;
   bottom: 24px;
   right: 24px;
@@ -274,6 +277,7 @@ body { background: #000; }
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   z-index: 100;
 }
+.fullscreen.active .random-btn { display: block; }
 .edit-controls {
   display: none;
   position: absolute;
@@ -315,18 +319,38 @@ body { background: #000; }
 <div class="toolbar">
   <button class="back-btn" onclick="Android.goBack()">←</button>
   <span style="color:#ff69b4;font-size:18px;font-weight:bold;">Gallery</span>
-  <button class="edit-toggle" onclick="toggleEditMode()" style="margin-left:auto;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
+  <button class="unmute-btn" id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;">🔇</button>
+  <button class="edit-toggle" onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
   <button class="close-btn" onclick="closeFullscreen()">×</button>
   <div class="fullscreen-content" id="fullscreenContent"></div>
+  <button class="random-btn" onclick="showRandomItem()">🎲</button>
 </div>
 <button class="add-btn" onclick="Android.showAddDialog()">+</button>
-<button class="random-btn" onclick="showRandomItem()">🎲</button>
 <script>
 var items = $itemsJson;
 var galleryType = '$galleryType';
+var defaultVolume = $defaultVolume;
+var rotation = 0;
+var isMuted = true;
+
+// Show unmute button only for PORNHUB and REDGIF
+if (galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
+  document.getElementById('unmuteBtn').style.display = 'block';
+}
+
+// Toggle mute for all videos in gallery
+function toggleMuteAll() {
+  isMuted = !isMuted;
+  var videos = document.querySelectorAll('.thumb video');
+  videos.forEach(function(v) {
+    v.muted = isMuted;
+    if (!isMuted) v.volume = defaultVolume / 100;
+  });
+  document.getElementById('unmuteBtn').textContent = isMuted ? '🔇' : '🔊';
+}
 
 // Set columns and thumb shape based on type
 var grid = document.getElementById('grid');
@@ -382,15 +406,15 @@ function buildMedia(item, isFullscreen) {
   var type = galleryType;
   var isEditMode = window.editMode === true;
 
-  // REDGIF: use inline iframe
+  // REDGIF: use inline iframe with flexbox centering
   if (type === 'REDGIF') {
     var id = value.includes('redgifs.com') ? value.split('/').pop().split('?')[0] : value;
     id = id.replace(/[^a-zA-Z0-9]/g, '');
     var wrapper = document.createElement('div');
-    wrapper.style.cssText = 'position:relative;padding-bottom:177.78%;width:100%;height:100%;background:#1a1a1a;';
+    wrapper.style.cssText = 'display:flex;justify-content:center;align-items:center;width:100%;height:100%;background:#1a1a1a;';
     var iframe = document.createElement('iframe');
     iframe.src = 'https://www.redgifs.com/ifr/' + id;
-    iframe.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;border:none;';
+    iframe.style.cssText = 'width:100%;height:100%;border:none;max-width:300px;';
     iframe.setAttribute('allowfullscreen', '');
     wrapper.appendChild(iframe);
     return wrapper;
@@ -402,19 +426,26 @@ function buildMedia(item, isFullscreen) {
       var v = document.createElement('video');
       v.src = item.resolvedUrl;
       v.autoplay = true;
-      v.volume = 0.1;
-      v.muted = false;
+      v.volume = defaultVolume / 100;
+      v.muted = true;
       v.loop = true;
       v.setAttribute('playsinline', '');
       v.style.cssText = isFullscreen
         ? 'width:100%;height:auto;max-height:100%;object-fit:contain;display:block;'
         : 'width:100%;height:100%;object-fit:cover;';
-      // Click to increase volume
-      v.onclick = function(e) {
-        if (this.volume < 0.9) {
-          this.volume = Math.round((this.volume + 0.1) * 10) / 10;
-        }
-      };
+      // Click to adjust volume per-clip in fullscreen
+      if (isFullscreen) {
+        v.onclick = function(e) {
+          e.stopPropagation();
+          if (e.clientX < window.innerWidth / 2) {
+            // Left side: decrease
+            this.volume = Math.max(0, this.volume - 0.1);
+          } else {
+            // Right side: increase
+            this.volume = Math.min(1, this.volume + 0.1);
+          }
+        };
+      }
       // Long press to open WebView
       v.oncontextmenu = function(e) {
         e.preventDefault();
@@ -488,13 +519,64 @@ function openFullscreen(index) {
 
   content.innerHTML = '';
 
-  // RedGif and PH: open in-app browser with the iframe URL for fullscreen
+  // RedGif: 1st click expands inline, 2nd click opens InAppBrowserActivity
   if (type === 'REDGIF') {
     var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
     id = id.replace(/[^a-zA-Z0-9]/g, '');
-    Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
+    
+    if (!item.wasExpanded) {
+      // First click: expand inline
+      item.wasExpanded = true;
+      content.innerHTML = '';
+      var wrapper = document.createElement('div');
+      wrapper.style.cssText = 'width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:#000;';
+      var iframe = document.createElement('iframe');
+      iframe.src = 'https://www.redgifs.com/ifr/' + id;
+      iframe.style.cssText = 'width:100%;height:100%;max-width:500px;border:none;';
+      iframe.setAttribute('allowfullscreen', '');
+      wrapper.appendChild(iframe);
+      content.appendChild(wrapper);
+      fullscreen.classList.add('active');
+      // Add click handler on expanded content to open InAppBrowserActivity
+      content.onclick = function(e) {
+        if (item.wasExpanded) {
+          Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
+          item.wasExpanded = false;
+          closeFullscreen();
+        }
+      };
+      return;
+    } else {
+      // Second click: open InAppBrowserActivity
+      Android.openInAppUrl('https://www.redgifs.com/ifr/' + id);
+      item.wasExpanded = false;
+      return;
+    }
+  }
+  
+  // PornHub: inline fullscreen with landscape orientation
+  if (type === 'PORNHUB' && item.resolvedUrl) {
+    Android.requestLandscape();
+    content.appendChild(buildMedia(item, true));
+    fullscreen.classList.add('active');
+    // Reset orientation on close
+    window.resetOrientation = function() { Android.resetOrientation(); };
     return;
   }
+
+  // Normal image/video: show inline fullscreen
+  content.appendChild(buildMedia(item, true));
+  fullscreen.classList.add('active');
+  
+  // Add rotation to fullscreen content for images
+  var rotation = 0;
+  content.onclick = function() {
+    rotation = (rotation + 90) % 360;
+    content.style.transform = 'rotate(' + rotation + 'deg') + ' scale(1)';
+    var img = content.querySelector('img');
+    if (img) { img.style.objectFit = 'contain'; }
+  };
+}
   if (type === 'PORNHUB' && item.resolvedUrl) {
     Android.openInAppUrl(item.resolvedUrl);
     return;
@@ -515,6 +597,12 @@ function openFullscreen(index) {
 function closeFullscreen() {
   document.getElementById('fullscreen').classList.remove('active');
   document.getElementById('fullscreenContent').innerHTML = '';
+  // Reset orientation and mute state
+  if (galleryType === 'PORNHUB') {
+    Android.resetOrientation();
+    isMuted = true;
+    document.getElementById('unmuteBtn').textContent = '🔇';
+  }
 }
 
 // Edit mode toggle
@@ -593,6 +681,16 @@ renderGrid();
             val intent = android.content.Intent(context, InAppBrowserActivity::class.java)
             intent.putExtra("url", url)
             context.startActivity(intent)
+        }
+
+        @JavascriptInterface
+        fun requestLandscape() {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+
+        @JavascriptInterface
+        fun resetOrientation() {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
 
         @JavascriptInterface
