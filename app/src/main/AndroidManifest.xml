@@ -14,7 +14,7 @@
         android:usesCleartextTraffic="true">
 
         <activity
-            android:name=".ui.MainActivity"
+            android:name=".ui.PinActivity"
             android:exported="true"
             android:theme="@style/Theme.Vaults">
             <intent-filter>
@@ -22,6 +22,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Vaults" />
 
         <activity
             android:name=".WebViewGalleryActivity"

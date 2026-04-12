@@ -77,7 +77,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
             // Show loading
             binding.webView.loadUrl("about:blank")
             binding.webView.loadDataWithBaseURL(
-                "about:blank",
+                "https://app.vaults.local",
                 loadingHtml(),
                 "text/html",
                 "UTF-8",
@@ -265,7 +265,7 @@ function getHtml(item) {
     if (value.includes('redgifs.com')) {
       id = value.split('/').pop().split('?')[0];
     }
-    id = id.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12);
+    id = id.replace(/[^a-zA-Z0-9]/g, '');
     console.log('RedGif id: ' + id);
     return "<div style='position:relative; padding-bottom:177.78%'><iframe src='https://www.redgifs.com/ifr/" + id + "' frameBorder='0' scrolling='no' width='100%' height='100%' style='position:absolute; top:0; left:0;' allowFullScreen></iframe></div>";
   } else if (type === 'PORNHUB') {
@@ -330,7 +330,7 @@ renderGrid();
 </html>
         """.trimIndent()
 
-        binding.webView.loadDataWithBaseURL("about:blank", html, "text/html", "UTF-8", null)
+        binding.webView.loadDataWithBaseURL("https://app.vaults.local", html, "text/html", "UTF-8", null)
     }
 
     inner class Bridge(private val context: Context) {
@@ -398,15 +398,17 @@ renderGrid();
     }
 
     override fun onBackPressed() {
-        // Try to close fullscreen first, otherwise go back
+        // Check if fullscreen is active - only finish if it's not open
         binding.webView.evaluateJavascript(
-            "if(document.getElementById('fullscreen').classList.contains('active')) { closeFullscreen(); }",
-            null
+            "document.getElementById('fullscreen').classList.contains('active')",
+            { result ->
+                // If result is "false" or null, fullscreen is NOT active, so finish
+                if (result == null || result == "false") {
+                    finish()
+                }
+                // If result is "true", fullscreen was closed by the JS, stay in activity
+            }
         )
-        // Fallback: just finish
-        if (!binding.webView.canGoBack()) {
-            super.onBackPressed()
-        }
     }
 }
 

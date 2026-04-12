@@ -51,7 +51,7 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             loadWithOverviewMode = true
             useWideViewPort = true
-            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             allowContentAccess = true
             allowFileAccess = true
             blockNetworkImage = false
@@ -236,7 +236,7 @@ renderFolders();
 </html>
             """.trimIndent()
 
-            binding.webView.loadDataWithBaseURL("about:blank", html, "text/html", "UTF-8", null)
+            binding.webView.loadDataWithBaseURL("https://app.vaults.local", html, "text/html", "UTF-8", null)
         }
     }
 
