@@ -36,10 +36,6 @@ class InAppBrowserActivity : AppCompatActivity() {
     }
 
     override fun onBackPressed() {
-        if (binding.webView.canGoBack()) {
-            binding.webView.goBack()
-        } else {
-            finish()
-        }
+        finish()
     }
 }
