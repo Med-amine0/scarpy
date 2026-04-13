@@ -29,6 +29,11 @@
             android:theme="@style/Theme.Vaults" />
 
         <activity
+            android:name=".ui.FolderActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Vaults" />
+
+        <activity
             android:name=".WebViewGalleryActivity"
             android:exported="false"
             android:theme="@style/Theme.Vaults" />

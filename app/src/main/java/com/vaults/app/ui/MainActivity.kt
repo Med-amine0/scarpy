@@ -284,10 +284,23 @@ renderFolders();
     inner class MainBridge(private val context: Context) {
         @JavascriptInterface
         fun openGallery(galleryId: Long) {
-            val intent = Intent(context, WebViewGalleryActivity::class.java).apply {
-                putExtra("gallery_id", galleryId)
+            lifecycleScope.launch {
+                val gallery = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)
+                }
+                if (gallery?.type == com.vaults.app.db.GalleryType.FOLDER) {
+                    val intent = Intent(context, FolderActivity::class.java).apply {
+                        putExtra(FolderActivity.EXTRA_FOLDER_ID, galleryId)
+                        putExtra(FolderActivity.EXTRA_FOLDER_NAME, gallery.name)
+                    }
+                    startActivity(intent)
+                } else {
+                    val intent = Intent(context, WebViewGalleryActivity::class.java).apply {
+                        putExtra("gallery_id", galleryId)
+                    }
+                    startActivity(intent)
+                }
             }
-            startActivity(intent)
         }
 
         @JavascriptInterface

@@ -14,6 +14,9 @@ interface GalleryDao {
     @Query("SELECT * FROM galleries WHERE parentId = :parentId ORDER BY sortOrder")
     fun getChildGalleries(parentId: Long): Flow<List<Gallery>>
 
+    @Query("SELECT * FROM galleries WHERE parentId = :parentId ORDER BY sortOrder")
+    suspend fun getChildGalleriesOnce(parentId: Long): List<Gallery>
+
     @Query("SELECT * FROM galleries WHERE id = :id")
     suspend fun getGalleryById(id: Long): Gallery?
 
