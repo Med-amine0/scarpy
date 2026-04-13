@@ -57,6 +57,27 @@ class InAppBrowserActivity : AppCompatActivity() {
         }
         binding.webView.addJavascriptInterface(BrowserBridge(), "AndroidBrowser")
 
+        // X button overlay to close
+        val closeBtn = android.widget.Button(this).apply {
+            text = "×"
+            textSize = 20f
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundColor(android.graphics.Color.parseColor("#88000000"))
+            setPadding(0, 0, 0, 0)
+        }
+        val lp = android.widget.FrameLayout.LayoutParams(120, 80).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+            topMargin = 24
+        }
+        (binding.root as? android.widget.FrameLayout)?.addView(closeBtn, lp)
+            ?: run {
+                val frame = android.widget.FrameLayout(this)
+                frame.addView(binding.root)
+                frame.addView(closeBtn, lp)
+                setContentView(frame)
+            }
+        closeBtn.setOnClickListener { finish() }
+
         // Raw video URL (PH resolved mp4) — wrap in muted HTML player
         if (url.contains(".phncdn.com") || url.contains("cdn-fck.com") ||
             url.matches(Regex(".*\\.(mp4|webm)(\\?.*)?$", RegexOption.IGNORE_CASE))) {

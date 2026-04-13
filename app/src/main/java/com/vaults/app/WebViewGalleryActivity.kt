@@ -224,8 +224,8 @@ body { background: #000; }
   height: 100%;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  overflow-y: auto;
+  align-items: center;
+  overflow: hidden;
 }
 .close-btn {
   position: absolute;
@@ -296,14 +296,37 @@ body { background: #000; }
   padding: 40px;
   color: #666;
 }
+.col-controls {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+.edit-mode-active .col-controls { display: flex; }
+.col-btn {
+  background: #2a2a2a;
+  border: none;
+  color: #fff;
+  width: 28px; height: 28px;
+  border-radius: 14px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.col-count { color: #ff69b4; font-size: 14px; min-width: 16px; text-align: center; }
 </style>
 </head>
 <body>
-<div class="toolbar">
+<div class="toolbar" id="toolbar">
   <button class="back-btn" onclick="Android.goBack()">←</button>
   <span style="color:#ff69b4;font-size:18px;font-weight:bold;">Gallery</span>
+  <div class="col-controls">
+    <button class="col-btn" onclick="changeColumns(-1)">−</button>
+    <span class="col-count" id="colCount">3</span>
+    <button class="col-btn" onclick="changeColumns(1)">+</button>
+  </div>
   <button id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;">🔇</button>
-  <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
+  <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
@@ -332,12 +355,17 @@ function toggleMuteAll() {
 }
 
 var grid = document.getElementById('grid');
-if (galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
-  grid.style.setProperty('--cols', '2');
-} else {
-  grid.style.setProperty('--cols', '3');
-}
+var defaultCols = (galleryType === 'PORNHUB' || galleryType === 'REDGIF') ? 2 : 3;
+var currentCols = defaultCols;
+grid.style.setProperty('--cols', currentCols);
+document.getElementById('colCount').textContent = currentCols;
 var thumbClass = (galleryType === 'PORNHUB') ? 'thumb landscape' : 'thumb portrait';
+
+function changeColumns(delta) {
+  currentCols = Math.max(1, Math.min(6, currentCols + delta));
+  grid.style.setProperty('--cols', currentCols);
+  document.getElementById('colCount').textContent = currentCols;
+}
 
 function buildThumbElement(item, index) {
   var thumb = document.createElement('div');
@@ -431,9 +459,8 @@ function buildMedia(item, isFullscreen) {
 
   var img = document.createElement('img');
   img.src = value;
-  // Always 100% width, height auto — no overflow, no pan needed
   img.style.cssText = isFullscreen
-    ? 'width:100%;height:auto;display:block;max-width:100%;'
+    ? 'width:100%;height:100%;object-fit:contain;display:block;'
     : 'width:100%;height:100%;object-fit:cover;';
   img.onerror = function() { this.style.opacity = '0.3'; };
   return img;
@@ -515,16 +542,16 @@ function openFullscreen(index) {
     var rotation = 0;
 
     function applyTransform() {
-      // Always fill screen width. When rotated 90/270, use vw=100vh equivalent
+      // Always centered, always fully visible — object-fit:contain handles scaling
+      // When rotated 90/270, swap width/height to fill screen edge-to-edge
       if (rotation === 90 || rotation === 270) {
-        media.style.width = window.innerHeight + 'px';
-        media.style.height = 'auto';
-        media.style.maxWidth = 'none';
+        media.style.width = '100vh';
+        media.style.height = '100vw';
       } else {
         media.style.width = '100%';
-        media.style.height = 'auto';
-        media.style.maxWidth = '100%';
+        media.style.height = '100%';
       }
+      media.style.objectFit = 'contain';
       media.style.transform = 'rotate(' + rotation + 'deg)';
     }
 
@@ -555,6 +582,7 @@ function closeFullscreen() {
 function toggleEditMode() {
   window.editMode = !window.editMode;
   document.body.classList.toggle('edit-mode', window.editMode);
+  document.getElementById('toolbar').classList.toggle('edit-mode-active', window.editMode);
 }
 
 var shownIndices = [];
