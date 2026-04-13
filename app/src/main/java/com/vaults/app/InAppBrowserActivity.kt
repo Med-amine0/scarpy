@@ -58,6 +58,11 @@ class InAppBrowserActivity : AppCompatActivity() {
   b.style.cssText='position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:20px;padding:6px 20px;font-size:18px;cursor:pointer;';
   b.onclick=function(){AndroidBrowser.close();};
   document.body.appendChild(b);
+  // Mute all videos on load
+  document.querySelectorAll('video').forEach(function(v){v.muted=true;});
+  // Also catch videos added later
+  var obs=new MutationObserver(function(ml){ml.forEach(function(m){m.addedNodes.forEach(function(n){if(n.tagName==='VIDEO')n.muted=true;if(n.querySelectorAll)n.querySelectorAll('video').forEach(function(v){v.muted=true;});});});});
+  obs.observe(document.body,{childList:true,subtree:true});
 })();
                 """.trimIndent()
                 view?.evaluateJavascript(closeJs, null)

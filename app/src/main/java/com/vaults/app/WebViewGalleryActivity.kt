@@ -496,49 +496,69 @@ function openFullscreen(index) {
   var fullscreen = document.getElementById('fullscreen');
   content.innerHTML = '';
 
+  // ── REDGIF ─────────────────────────────────────────────────────────────────
   if (type === 'REDGIF') {
-    var thumb = document.querySelector('[data-index="' + index + '"]');
+    var currentIdx = index;
 
-    // Remove overlay so next tap hits iframe → InAppBrowser
-    if (thumb) { var ov = thumb.querySelector('.redgif-overlay'); if (ov) ov.remove(); }
-
-    // Move the existing iframe wrapper from thumbnail into fullscreen (no reload, seamless)
-    var existingWrapper = thumb ? thumb.firstChild : null;
-    var w;
-    if (existingWrapper) {
-      w = existingWrapper;
-      // Temporarily detach from thumb, place in fullscreen
-      thumb.removeChild(w);
-      w.style.cssText = 'width:100%;height:100%;background:#000;';
-      var innerIframe = w.querySelector('iframe');
-      if (innerIframe) innerIframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
-    } else {
-      var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
-      id = id.replace(/[^a-zA-Z0-9]/g, '');
-      w = document.createElement('div');
-      w.style.cssText = 'width:100%;height:100%;background:#000;';
-      var f = document.createElement('iframe');
-      f.src = 'https://www.redgifs.com/ifr/' + id;
-      f.style.cssText = 'width:100%;height:100%;border:none;display:block;';
-      f.setAttribute('allowfullscreen', '');
-      w.appendChild(f);
+    function returnWrapper(idx, w) {
+      var t = document.querySelector('[data-index="' + idx + '"]');
+      if (!t || !w) return;
+      var tapOv = w.querySelector('.tap-overlay');
+      if (tapOv) tapOv.remove();
+      w.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
+      var fi = w.querySelector('iframe');
+      if (fi) fi.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+      t.insertBefore(w, t.firstChild);
+      if (!t.querySelector('.redgif-overlay')) t.appendChild(makeOverlay(idx));
     }
-    content.appendChild(w);
 
-    // X button — on close, move the wrapper back into the thumbnail
+    function loadIntoFullscreen(idx) {
+      var thumb = document.querySelector('[data-index="' + idx + '"]');
+      if (thumb) { var ov = thumb.querySelector('.redgif-overlay'); if (ov) ov.remove(); }
+
+      var wrapper = thumb ? thumb.firstChild : null;
+      var w;
+      if (wrapper && wrapper.querySelector) {
+        w = wrapper;
+        thumb.removeChild(w);
+        w.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#000;';
+        var fi = w.querySelector('iframe');
+        if (fi) fi.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+      } else {
+        var id = items[idx].value.includes('redgifs.com') ? items[idx].value.split('/').pop().split('?')[0] : items[idx].value;
+        id = id.replace(/[^a-zA-Z0-9]/g, '');
+        w = document.createElement('div');
+        w.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#000;';
+        var f = document.createElement('iframe');
+        f.src = 'https://www.redgifs.com/ifr/' + id;
+        f.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+        f.setAttribute('allowfullscreen', '');
+        w.appendChild(f);
+      }
+
+      // Tap overlay cycles to next item — moves current wrapper back first
+      var tapOv = document.createElement('div');
+      tapOv.className = 'tap-overlay';
+      tapOv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:10;cursor:pointer;';
+      tapOv.onclick = function() {
+        returnWrapper(currentIdx, content.firstChild);
+        currentIdx = (currentIdx + 1) % items.length;
+        content.innerHTML = '';
+        loadIntoFullscreen(currentIdx);
+      };
+      w.appendChild(tapOv);
+
+      content.innerHTML = '';
+      content.appendChild(w);
+    }
+
+    loadIntoFullscreen(currentIdx);
+
     var xBtn = document.createElement('button');
     xBtn.textContent = '×';
     xBtn.style.cssText = 'position:absolute;top:16px;left:16px;width:48px;height:48px;background:rgba(255,255,255,0.2);border-radius:24px;border:none;color:#fff;font-size:24px;cursor:pointer;z-index:1001;';
     xBtn.onclick = function() {
-      // Move wrapper back to thumbnail
-      if (thumb && w.parentNode === content) {
-        content.removeChild(w);
-        w.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
-        var innerIframe = w.querySelector('iframe');
-        if (innerIframe) innerIframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
-        thumb.insertBefore(w, thumb.firstChild);
-        if (!thumb.querySelector('.redgif-overlay')) thumb.appendChild(makeOverlay(index));
-      }
+      returnWrapper(currentIdx, content.firstChild);
       xBtn.remove();
       fullscreen.classList.remove('active');
       content.innerHTML = '';
@@ -548,66 +568,127 @@ function openFullscreen(index) {
     return;
   }
 
+  // ── PORNHUB ────────────────────────────────────────────────────────────────
   if (type === 'PORNHUB' && item.resolvedUrl) {
     Android.openInAppUrl(item.resolvedUrl, true);
     return;
   }
 
-  // Normal image/video fullscreen
+  // ── NORMAL image / video ───────────────────────────────────────────────────
   var media = buildMedia(item, true);
   content.appendChild(media);
   fullscreen.classList.add('active');
 
   if (media.tagName === 'IMG') {
-    var rotation = 0;
-    var scale = 1;
-    var lastDist = 0;
+    var rotation = 0, scale = 1, panX = 0, panY = 0;
+    var lastDist = 0, isPinching = false;
+    var dragStartX = 0, dragStartY = 0, dragStartPanX = 0, dragStartPanY = 0, isDragging = false;
+
+    // ── Bottom buttons ────────────────────────────────────────────────────────
+    var btnBar = document.createElement('div');
+    btnBar.style.cssText = 'position:absolute;bottom:24px;left:0;width:100%;display:flex;justify-content:center;gap:32px;z-index:1002;pointer-events:none;';
+
+    function makeCtrlBtn(label) {
+      var b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = 'width:60px;height:60px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:28px;border-radius:30px;cursor:pointer;pointer-events:auto;';
+      return b;
+    }
+
+    var rotBtn = makeCtrlBtn('↻');
+    rotBtn.onclick = function(e) {
+      e.stopPropagation();
+      rotation = (rotation + 90) % 360;
+      scale = 1; panX = 0; panY = 0;
+      applyTransform();
+    };
+
+    var zoomInBtn = makeCtrlBtn('+');
+    zoomInBtn.onclick = function(e) {
+      e.stopPropagation();
+      scale = Math.min(5, scale * 1.5);
+      clampPan();
+      applyTransform();
+    };
+
+    btnBar.appendChild(rotBtn);
+    btnBar.appendChild(zoomInBtn);
+    fullscreen.appendChild(btnBar);
+
+    // ── Pan clamping ──────────────────────────────────────────────────────────
+    function getMaxPan() {
+      var containerW = content.offsetWidth, containerH = content.offsetHeight;
+      var sw = media.naturalWidth || media.offsetWidth || containerW;
+      var sh = media.naturalHeight || media.offsetHeight || containerH;
+      var sideways = rotation === 90 || rotation === 270;
+      var fitW = sideways ? containerH : containerW;
+      var fitH = sideways ? containerW : containerH;
+      var ratio = sw / sh, fitRatio = fitW / fitH;
+      var fW = ratio > fitRatio ? fitW : fitH * ratio;
+      var fH = ratio > fitRatio ? fitW / ratio : fitH;
+      return {
+        x: Math.max(0, (fW * scale - containerW) / 2),
+        y: Math.max(0, (fH * scale - containerH) / 2)
+      };
+    }
+
+    function clampPan() {
+      var m = getMaxPan();
+      panX = Math.max(-m.x, Math.min(m.x, panX));
+      panY = Math.max(-m.y, Math.min(m.y, panY));
+    }
 
     function applyTransform() {
       if (rotation === 90 || rotation === 270) {
-        media.style.width = '100vh';
-        media.style.height = '100vw';
+        media.style.width = '100vh'; media.style.height = '100vw';
       } else {
-        media.style.width = '100%';
-        media.style.height = '100%';
+        media.style.width = '100%'; media.style.height = '100%';
       }
       media.style.objectFit = 'contain';
       media.style.transformOrigin = 'center center';
-      media.style.transform = 'rotate(' + rotation + 'deg) scale(' + scale + ')';
+      // translate THEN rotate so pan axes match screen orientation
+      media.style.transform = 'translate(' + panX + 'px,' + panY + 'px) rotate(' + rotation + 'deg) scale(' + scale + ')';
     }
 
-    function dist(touches) {
-      var dx = touches[0].clientX - touches[1].clientX;
-      var dy = touches[0].clientY - touches[1].clientY;
+    function touchDist(t) {
+      var dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
       return Math.sqrt(dx*dx + dy*dy);
     }
 
-    var touchStartCount = 0;
     content.addEventListener('touchstart', function(e) {
-      touchStartCount = e.touches.length;
-      if (e.touches.length === 2) lastDist = dist(e.touches);
+      if (e.touches.length === 2) {
+        isPinching = true; isDragging = false;
+        lastDist = touchDist(e.touches);
+      } else if (e.touches.length === 1) {
+        isPinching = false;
+        dragStartX = e.touches[0].clientX; dragStartY = e.touches[0].clientY;
+        dragStartPanX = panX; dragStartPanY = panY;
+        isDragging = false;
+      }
     }, {passive: true});
 
     content.addEventListener('touchmove', function(e) {
-      if (e.touches.length === 2) {
-        e.preventDefault();
-        var d = dist(e.touches);
+      e.preventDefault();
+      if (e.touches.length === 2 && isPinching) {
+        var d = touchDist(e.touches);
         if (lastDist > 0) {
-          scale = Math.max(0.5, Math.min(5, scale * (d / lastDist)));
-          applyTransform();
+          scale = Math.max(1, Math.min(5, scale * d / lastDist));
+          clampPan(); applyTransform();
         }
         lastDist = d;
+      } else if (e.touches.length === 1 && !isPinching) {
+        var dx = e.touches[0].clientX - dragStartX;
+        var dy = e.touches[0].clientY - dragStartY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) isDragging = true;
+        if (isDragging) {
+          panX = dragStartPanX + dx; panY = dragStartPanY + dy;
+          clampPan(); applyTransform();
+        }
       }
     }, {passive: false});
 
-    content.addEventListener('touchend', function(e) {
-      // Only rotate on single-finger tap (not after pinch)
-      if (touchStartCount === 1 && e.changedTouches.length === 1) {
-        rotation = (rotation + 90) % 360;
-        scale = 1; // reset zoom on rotate
-        applyTransform();
-      }
-      lastDist = 0;
+    content.addEventListener('touchend', function() {
+      lastDist = 0; isPinching = false;
     });
 
     applyTransform();
@@ -615,23 +696,8 @@ function openFullscreen(index) {
 }
 
 function closeFullscreen() {
-  // For RedGif: if there's a wrapper in content, move it back to its thumbnail
-  if (galleryType === 'REDGIF') {
-    var w = document.getElementById('fullscreenContent').firstChild;
-    // Find which thumb is missing its first media child (was moved out)
-    document.querySelectorAll('[data-index]').forEach(function(thumb) {
-      if (!thumb.querySelector('div') && !thumb.querySelector('iframe') && w) {
-        w.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
-        var f = w.querySelector('iframe');
-        if (f) f.style.cssText = 'width:100%;height:100%;border:none;display:block;';
-        thumb.insertBefore(w, thumb.firstChild);
-        w = null;
-      }
-      if (!thumb.querySelector('.redgif-overlay')) {
-        thumb.appendChild(makeOverlay(parseInt(thumb.getAttribute('data-index'))));
-      }
-    });
-  }
+  // Clean up any added button bars or extra buttons
+  document.querySelectorAll('#fullscreen div[style*="bottom:24px"]').forEach(function(b){ b.remove(); });
   document.querySelectorAll('#fullscreen button:not(.close-btn):not(.random-btn)').forEach(function(b){ b.remove(); });
   document.getElementById('fullscreen').classList.remove('active');
   document.getElementById('fullscreenContent').innerHTML = '';
