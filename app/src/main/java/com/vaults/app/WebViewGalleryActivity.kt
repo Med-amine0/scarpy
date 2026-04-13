@@ -497,28 +497,48 @@ function openFullscreen(index) {
   content.innerHTML = '';
 
   if (type === 'REDGIF') {
-    var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
-    id = id.replace(/[^a-zA-Z0-9]/g, '');
     var thumb = document.querySelector('[data-index="' + index + '"]');
 
     // Remove overlay so next tap hits iframe → InAppBrowser
     if (thumb) { var ov = thumb.querySelector('.redgif-overlay'); if (ov) ov.remove(); }
 
-    var w = document.createElement('div');
-    w.style.cssText = 'width:100%;height:100%;display:flex;justify-content:center;align-items:center;background:#000;';
-    var f = document.createElement('iframe');
-    f.src = 'https://www.redgifs.com/ifr/' + id;
-    f.style.cssText = 'width:100%;height:100%;border:none;';
-    f.setAttribute('allowfullscreen', '');
-    w.appendChild(f);
+    // Move the existing iframe wrapper from thumbnail into fullscreen (no reload, seamless)
+    var existingWrapper = thumb ? thumb.firstChild : null;
+    var w;
+    if (existingWrapper) {
+      w = existingWrapper;
+      // Temporarily detach from thumb, place in fullscreen
+      thumb.removeChild(w);
+      w.style.cssText = 'width:100%;height:100%;background:#000;';
+      var innerIframe = w.querySelector('iframe');
+      if (innerIframe) innerIframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+    } else {
+      var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
+      id = id.replace(/[^a-zA-Z0-9]/g, '');
+      w = document.createElement('div');
+      w.style.cssText = 'width:100%;height:100%;background:#000;';
+      var f = document.createElement('iframe');
+      f.src = 'https://www.redgifs.com/ifr/' + id;
+      f.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+      f.setAttribute('allowfullscreen', '');
+      w.appendChild(f);
+    }
     content.appendChild(w);
 
-    // X button to collapse and restore overlay
+    // X button — on close, move the wrapper back into the thumbnail
     var xBtn = document.createElement('button');
     xBtn.textContent = '×';
     xBtn.style.cssText = 'position:absolute;top:16px;left:16px;width:48px;height:48px;background:rgba(255,255,255,0.2);border-radius:24px;border:none;color:#fff;font-size:24px;cursor:pointer;z-index:1001;';
     xBtn.onclick = function() {
-      if (thumb && !thumb.querySelector('.redgif-overlay')) thumb.appendChild(makeOverlay(index));
+      // Move wrapper back to thumbnail
+      if (thumb && w.parentNode === content) {
+        content.removeChild(w);
+        w.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
+        var innerIframe = w.querySelector('iframe');
+        if (innerIframe) innerIframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+        thumb.insertBefore(w, thumb.firstChild);
+        if (!thumb.querySelector('.redgif-overlay')) thumb.appendChild(makeOverlay(index));
+      }
       xBtn.remove();
       fullscreen.classList.remove('active');
       content.innerHTML = '';
@@ -540,10 +560,10 @@ function openFullscreen(index) {
 
   if (media.tagName === 'IMG') {
     var rotation = 0;
+    var scale = 1;
+    var lastDist = 0;
 
     function applyTransform() {
-      // Always centered, always fully visible — object-fit:contain handles scaling
-      // When rotated 90/270, swap width/height to fill screen edge-to-edge
       if (rotation === 90 || rotation === 270) {
         media.style.width = '100vh';
         media.style.height = '100vw';
@@ -552,12 +572,42 @@ function openFullscreen(index) {
         media.style.height = '100%';
       }
       media.style.objectFit = 'contain';
-      media.style.transform = 'rotate(' + rotation + 'deg)';
+      media.style.transformOrigin = 'center center';
+      media.style.transform = 'rotate(' + rotation + 'deg) scale(' + scale + ')';
     }
 
-    content.addEventListener('click', function() {
-      rotation = (rotation + 90) % 360;
-      applyTransform();
+    function dist(touches) {
+      var dx = touches[0].clientX - touches[1].clientX;
+      var dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx*dx + dy*dy);
+    }
+
+    var touchStartCount = 0;
+    content.addEventListener('touchstart', function(e) {
+      touchStartCount = e.touches.length;
+      if (e.touches.length === 2) lastDist = dist(e.touches);
+    }, {passive: true});
+
+    content.addEventListener('touchmove', function(e) {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        var d = dist(e.touches);
+        if (lastDist > 0) {
+          scale = Math.max(0.5, Math.min(5, scale * (d / lastDist)));
+          applyTransform();
+        }
+        lastDist = d;
+      }
+    }, {passive: false});
+
+    content.addEventListener('touchend', function(e) {
+      // Only rotate on single-finger tap (not after pinch)
+      if (touchStartCount === 1 && e.changedTouches.length === 1) {
+        rotation = (rotation + 90) % 360;
+        scale = 1; // reset zoom on rotate
+        applyTransform();
+      }
+      lastDist = 0;
     });
 
     applyTransform();
@@ -565,15 +615,23 @@ function openFullscreen(index) {
 }
 
 function closeFullscreen() {
-  // Restore any RedGif overlays that were removed
+  // For RedGif: if there's a wrapper in content, move it back to its thumbnail
   if (galleryType === 'REDGIF') {
+    var w = document.getElementById('fullscreenContent').firstChild;
+    // Find which thumb is missing its first media child (was moved out)
     document.querySelectorAll('[data-index]').forEach(function(thumb) {
+      if (!thumb.querySelector('div') && !thumb.querySelector('iframe') && w) {
+        w.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
+        var f = w.querySelector('iframe');
+        if (f) f.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+        thumb.insertBefore(w, thumb.firstChild);
+        w = null;
+      }
       if (!thumb.querySelector('.redgif-overlay')) {
         thumb.appendChild(makeOverlay(parseInt(thumb.getAttribute('data-index'))));
       }
     });
   }
-  // Remove any extra X buttons
   document.querySelectorAll('#fullscreen button:not(.close-btn):not(.random-btn)').forEach(function(b){ b.remove(); });
   document.getElementById('fullscreen').classList.remove('active');
   document.getElementById('fullscreenContent').innerHTML = '';

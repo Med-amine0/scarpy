@@ -49,6 +49,19 @@ class InAppBrowserActivity : AppCompatActivity() {
         binding.webView.webChromeClient = WebChromeClient()
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, loadedUrl: String?) {
+                // Inject X close button on every page
+                val closeJs = """
+(function(){
+  if(document.getElementById('vaults-close-btn'))return;
+  var b=document.createElement('button');
+  b.id='vaults-close-btn';b.textContent='✕';
+  b.style.cssText='position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:20px;padding:6px 20px;font-size:18px;cursor:pointer;';
+  b.onclick=function(){AndroidBrowser.close();};
+  document.body.appendChild(b);
+})();
+                """.trimIndent()
+                view?.evaluateJavascript(closeJs, null)
+
                 if (loadedUrl != null && loadedUrl.contains("pornhub.com/gif/")) {
                     currentGifId = loadedUrl.substringAfterLast("/gif/").substringBefore("?").substringBefore("#")
                     injectAddButton()
@@ -57,41 +70,7 @@ class InAppBrowserActivity : AppCompatActivity() {
         }
         binding.webView.addJavascriptInterface(BrowserBridge(), "AndroidBrowser")
 
-        // X button overlay to close
-        val closeBtn = android.widget.Button(this).apply {
-            text = "×"
-            textSize = 20f
-            setTextColor(android.graphics.Color.WHITE)
-            setBackgroundColor(android.graphics.Color.parseColor("#88000000"))
-            setPadding(0, 0, 0, 0)
-        }
-        val lp = android.widget.FrameLayout.LayoutParams(120, 80).apply {
-            gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
-            topMargin = 24
-        }
-        (binding.root as? android.widget.FrameLayout)?.addView(closeBtn, lp)
-            ?: run {
-                val frame = android.widget.FrameLayout(this)
-                frame.addView(binding.root)
-                frame.addView(closeBtn, lp)
-                setContentView(frame)
-            }
-        closeBtn.setOnClickListener { finish() }
-
-        // Raw video URL (PH resolved mp4) — wrap in muted HTML player
-        if (url.contains(".phncdn.com") || url.contains("cdn-fck.com") ||
-            url.matches(Regex(".*\\.(mp4|webm)(\\?.*)?$", RegexOption.IGNORE_CASE))) {
-            val html = """<!DOCTYPE html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#000;display:flex;flex-direction:column;height:100vh}video{width:100%;flex:1;object-fit:contain;background:#000}.ctrl{display:flex;justify-content:center;padding:12px;background:#111}button{background:#ff69b4;border:none;color:#fff;padding:10px 24px;border-radius:20px;font-size:16px;cursor:pointer}</style>
-</head><body>
-<video id="v" src="$url" autoplay muted loop playsinline></video>
-<div class="ctrl"><button onclick="var v=document.getElementById('v');v.muted=!v.muted;this.textContent=v.muted?'🔇 Unmute':'🔊 Mute'">🔇 Unmute</button></div>
-</body></html>""".trimIndent()
-            binding.webView.loadDataWithBaseURL("https://app.vaults.local", html, "text/html", "UTF-8", null)
-        } else {
-            binding.webView.loadUrl(url)
-        }
+        binding.webView.loadUrl(url)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -137,6 +116,9 @@ class InAppBrowserActivity : AppCompatActivity() {
     }
 
     inner class BrowserBridge {
+        @JavascriptInterface
+        fun close() { runOnUiThread { finish() } }
+
         @JavascriptInterface
         fun getCurrentGifId(): String = currentGifId ?: ""
 
