@@ -15,8 +15,6 @@ import com.vaults.app.db.GalleryItem
 import com.vaults.app.db.GalleryType
 import com.vaults.app.scraper.MediaResolver
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -86,58 +84,58 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
             galleryType = type
 
-            // Build JSON from DB immediately - use cached resolvedUrl where available
             val items = withContext(Dispatchers.IO) {
                 VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
             }
 
             val nowSeconds = System.currentTimeMillis() / 1000
 
+            // Build initial JSON using cached/valid resolvedUrls — uncached ones render as placeholders
             val itemsJson = JSONArray()
             items.forEach { item ->
                 val obj = JSONObject().apply {
                     put("id", item.id)
                     put("value", item.value)
                     put("type", type.name)
-                    // Use cached URL only if not expired (PH URLs have validto= param)
                     val cached = item.resolvedUrl
                     if (cached != null) {
                         val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
                         if (validTo == null || validTo > nowSeconds) {
                             put("resolvedUrl", cached)
                         }
-                        // else expired - treat as uncached, will re-resolve
+                        // else expired — will re-resolve below
                     }
                 }
                 itemsJson.put(obj)
             }
 
-            // Render grid immediately with whatever we have cached
             val defaultVolume = prefs.getInt("default_volume", 5)
             loadThumbnailGridFast(itemsJson.toString(), defaultVolume)
 
-            // Resolve uncached/expired items in parallel, inject into page as each finishes
+            // Lazy sequential resolution: resolve one at a time so clips appear progressively.
+            // Already-cached items rendered immediately above; only missing/expired ones need work.
+            // Once injected into the page the JS never re-fetches on scroll — the DOM node stays.
             if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
                 val uncached = items.filter { item ->
                     val cached = item.resolvedUrl
                     if (cached == null) return@filter true
                     val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
-                    validTo != null && validTo <= nowSeconds // expired
+                    validTo != null && validTo <= nowSeconds
                 }
-                uncached.map { item ->
-                    async(Dispatchers.IO) {
-                        val resolved = MediaResolver.resolve(type, item.value)
-                        if (resolved.url != null) {
-                            VaultsApp.instance.db.galleryItemDao().updateResolvedUrl(item.id, resolved.url)
-                            val escapedUrl = resolved.url.replace("'", "\\'")
-                            withContext(Dispatchers.Main) {
-                                binding.webView.evaluateJavascript(
-                                    "injectResolvedUrl(${item.id}, '$escapedUrl');", null
-                                )
-                            }
-                        }
+                for (item in uncached) {
+                    val resolved = withContext(Dispatchers.IO) {
+                        MediaResolver.resolve(type, item.value)
                     }
-                }.awaitAll()
+                    if (resolved.url != null) {
+                        withContext(Dispatchers.IO) {
+                            VaultsApp.instance.db.galleryItemDao().updateResolvedUrl(item.id, resolved.url)
+                        }
+                        val escapedUrl = resolved.url.replace("'", "\\'")
+                        binding.webView.evaluateJavascript(
+                            "injectResolvedUrl(${item.id}, '$escapedUrl');", null
+                        )
+                    }
+                }
             }
         }
     }
@@ -473,6 +471,8 @@ function injectResolvedUrl(itemId, url) {
       var cell = document.querySelector('[data-id="' + itemId + '"]');
       if (cell) {
         var firstChild = cell.firstChild;
+        // Skip if already showing a real video (already resolved — don't disrupt playing video)
+        if (firstChild && firstChild.tagName === 'VIDEO') break;
         if (firstChild) cell.replaceChild(buildMedia(items[i], false), firstChild);
       }
       break;
@@ -763,8 +763,21 @@ renderGrid();
         fun getPornhubGalleries(): String {
             val galleries = runBlocking {
                 withContext(Dispatchers.IO) {
-                    VaultsApp.instance.db.galleryDao().getRootGalleriesOnce()
-                        .filter { it.type == com.vaults.app.db.GalleryType.PORNHUB }
+                    val allGalleries = mutableListOf<com.vaults.app.db.Gallery>()
+                    val toVisit = ArrayDeque<Long?>()
+                    toVisit.add(null)
+                    while (toVisit.isNotEmpty()) {
+                        val parentId = toVisit.removeFirst()
+                        val children = if (parentId == null)
+                            VaultsApp.instance.db.galleryDao().getRootGalleriesOnce()
+                        else
+                            VaultsApp.instance.db.galleryDao().getChildGalleriesOnce(parentId)
+                        children.forEach { g ->
+                            if (g.type == com.vaults.app.db.GalleryType.PORNHUB) allGalleries.add(g)
+                            if (g.type == com.vaults.app.db.GalleryType.FOLDER) toVisit.add(g.id)
+                        }
+                    }
+                    allGalleries
                 }
             }
             val arr = org.json.JSONArray()
@@ -862,6 +875,18 @@ renderGrid();
                 loadGalleryItems()
             }
         }
+    }
+
+    // Auto-mute all videos when leaving the gallery (back, home, switching apps, opening fullscreen browser)
+    // This prevents audio bleeding into other activities or the home screen.
+    override fun onPause() {
+        super.onPause()
+        binding.webView.evaluateJavascript(
+            "document.querySelectorAll('video').forEach(function(v){v.muted=true;});" +
+            "isMuted=true;" +
+            "var btn=document.getElementById('unmuteBtn');if(btn)btn.textContent='🔇';",
+            null
+        )
     }
 
     override fun onBackPressed() {

@@ -82,8 +82,22 @@ class InAppBrowserActivity : AppCompatActivity() {
     private fun injectAddButton() {
         val galleries = runBlocking {
             withContext(Dispatchers.IO) {
-                VaultsApp.instance.db.galleryDao().getRootGalleriesOnce()
-                    .filter { it.type == GalleryType.PORNHUB }
+                // Collect ALL galleries (root + nested) that are PORNHUB type
+                val allGalleries = mutableListOf<com.vaults.app.db.Gallery>()
+                val toVisit = ArrayDeque<Long?>()
+                toVisit.add(null) // start from root
+                while (toVisit.isNotEmpty()) {
+                    val parentId = toVisit.removeFirst()
+                    val children = if (parentId == null)
+                        VaultsApp.instance.db.galleryDao().getRootGalleriesOnce()
+                    else
+                        VaultsApp.instance.db.galleryDao().getChildGalleriesOnce(parentId)
+                    children.forEach { g ->
+                        if (g.type == GalleryType.PORNHUB) allGalleries.add(g)
+                        if (g.type == com.vaults.app.db.GalleryType.FOLDER) toVisit.add(g.id)
+                    }
+                }
+                allGalleries
             }
         }
         if (galleries.isEmpty()) return
