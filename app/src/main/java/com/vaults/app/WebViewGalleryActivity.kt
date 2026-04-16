@@ -15,6 +15,8 @@ import com.vaults.app.db.GalleryItem
 import com.vaults.app.db.GalleryType
 import com.vaults.app.scraper.MediaResolver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -90,7 +92,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
 
             val nowSeconds = System.currentTimeMillis() / 1000
 
-            // Build initial JSON using cached/valid resolvedUrls — uncached ones render as placeholders
+            // Build initial JSON — pass cached/valid resolvedUrls so they render immediately
             val itemsJson = JSONArray()
             items.forEach { item ->
                 val obj = JSONObject().apply {
@@ -103,7 +105,6 @@ class WebViewGalleryActivity : AppCompatActivity() {
                         if (validTo == null || validTo > nowSeconds) {
                             put("resolvedUrl", cached)
                         }
-                        // else expired — will re-resolve below
                     }
                 }
                 itemsJson.put(obj)
@@ -112,9 +113,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
             val defaultVolume = prefs.getInt("default_volume", 5)
             loadThumbnailGridFast(itemsJson.toString(), defaultVolume)
 
-            // Lazy sequential resolution: resolve one at a time so clips appear progressively.
-            // Already-cached items rendered immediately above; only missing/expired ones need work.
-            // Once injected into the page the JS never re-fetches on scroll — the DOM node stays.
+            // Resolve uncached/expired items in parallel — fast, all at once
             if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
                 val uncached = items.filter { item ->
                     val cached = item.resolvedUrl
@@ -122,20 +121,20 @@ class WebViewGalleryActivity : AppCompatActivity() {
                     val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
                     validTo != null && validTo <= nowSeconds
                 }
-                for (item in uncached) {
-                    val resolved = withContext(Dispatchers.IO) {
-                        MediaResolver.resolve(type, item.value)
-                    }
-                    if (resolved.url != null) {
-                        withContext(Dispatchers.IO) {
+                uncached.map { item ->
+                    async(Dispatchers.IO) {
+                        val resolved = MediaResolver.resolve(type, item.value)
+                        if (resolved.url != null) {
                             VaultsApp.instance.db.galleryItemDao().updateResolvedUrl(item.id, resolved.url)
+                            val escapedUrl = resolved.url.replace("'", "\\'")
+                            withContext(Dispatchers.Main) {
+                                binding.webView.evaluateJavascript(
+                                    "injectResolvedUrl(${item.id}, '$escapedUrl');", null
+                                )
+                            }
                         }
-                        val escapedUrl = resolved.url.replace("'", "\\'")
-                        binding.webView.evaluateJavascript(
-                            "injectResolvedUrl(${item.id}, '$escapedUrl');", null
-                        )
                     }
-                }
+                }.awaitAll()
             }
         }
     }
@@ -345,9 +344,9 @@ if (galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
 
 function toggleMuteAll() {
   isMuted = !isMuted;
-  document.querySelectorAll('.thumb video').forEach(function(v) {
+  document.querySelectorAll('#grid video').forEach(function(v) {
     v.muted = isMuted;
-    if (!isMuted) v.volume = defaultVolume / 100;
+    if (!isMuted) { v.volume = defaultVolume / 100; }
   });
   document.getElementById('unmuteBtn').textContent = isMuted ? '🔇' : '🔊';
 }
@@ -412,7 +411,8 @@ function buildMedia(item, isFullscreen) {
     var w = document.createElement('div');
     w.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
     var f = document.createElement('iframe');
-    f.src = 'https://www.redgifs.com/ifr/' + id;
+    // Lazy: only set src when scrolled into view via observer
+    f.setAttribute('data-src', 'https://www.redgifs.com/ifr/' + id);
     f.style.cssText = 'width:100%;height:100%;border:none;display:block;';
     f.setAttribute('allowfullscreen', '');
     w.appendChild(f);
@@ -423,11 +423,11 @@ function buildMedia(item, isFullscreen) {
     if (item.resolvedUrl) {
       var v = document.createElement('video');
       v.src = item.resolvedUrl;
-      v.autoplay = true; v.muted = true; v.loop = true;
+      v.muted = true; v.loop = true; v.autoplay = false;
       v.volume = defaultVolume / 100;
       v.setAttribute('playsinline', '');
+      v.setAttribute('preload', 'metadata');
       v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-      // Long-press to open PH gif page
       if (!isFullscreen) {
         var pressTimer = null;
         v.addEventListener('touchstart', function(e) {
@@ -449,8 +449,9 @@ function buildMedia(item, isFullscreen) {
 
   if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     var v = document.createElement('video');
-    v.src = value; v.autoplay = true; v.muted = true; v.loop = true;
+    v.src = value; v.muted = true; v.loop = true; v.autoplay = false;
     v.setAttribute('playsinline', '');
+    v.setAttribute('preload', 'metadata');
     v.style.cssText = isFullscreen ? 'width:100%;height:auto;object-fit:contain;display:block;' : 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
@@ -464,6 +465,32 @@ function buildMedia(item, isFullscreen) {
   return img;
 }
 
+// IntersectionObserver: play videos and load iframes only when visible
+var visibilityObserver = new IntersectionObserver(function(entries) {
+  entries.forEach(function(entry) {
+    var el = entry.target;
+    if (el.tagName === 'VIDEO') {
+      if (entry.isIntersecting) {
+        if (el.paused) { el.play().catch(function(){}); }
+      } else {
+        if (!el.paused) { el.pause(); }
+      }
+    } else if (el.tagName === 'IFRAME') {
+      // Lazy-load iframe src on first intersection
+      if (entry.isIntersecting && !el.src && el.getAttribute('data-src')) {
+        el.src = el.getAttribute('data-src');
+      }
+    }
+  });
+}, { rootMargin: '100px 0px', threshold: 0.01 });
+
+function observeMedia(container) {
+  var videos = container.querySelectorAll('video');
+  videos.forEach(function(v) { visibilityObserver.observe(v); });
+  var iframes = container.querySelectorAll('iframe[data-src]');
+  iframes.forEach(function(f) { visibilityObserver.observe(f); });
+}
+
 function injectResolvedUrl(itemId, url) {
   for (var i = 0; i < items.length; i++) {
     if (items[i].id == itemId) {
@@ -471,9 +498,12 @@ function injectResolvedUrl(itemId, url) {
       var cell = document.querySelector('[data-id="' + itemId + '"]');
       if (cell) {
         var firstChild = cell.firstChild;
-        // Skip if already showing a real video (already resolved — don't disrupt playing video)
         if (firstChild && firstChild.tagName === 'VIDEO') break;
-        if (firstChild) cell.replaceChild(buildMedia(items[i], false), firstChild);
+        if (firstChild) {
+          var newMedia = buildMedia(items[i], false);
+          cell.replaceChild(newMedia, firstChild);
+          observeMedia(cell);
+        }
       }
       break;
     }
@@ -486,7 +516,11 @@ function renderGrid() {
     grid.innerHTML = '<div class="empty-msg">No items yet. Tap + to add URLs.</div>';
     return;
   }
-  items.forEach(function(item, index) { grid.appendChild(buildThumbElement(item, index)); });
+  items.forEach(function(item, index) {
+    var thumb = buildThumbElement(item, index);
+    grid.appendChild(thumb);
+    observeMedia(thumb);
+  });
 }
 
 function openFullscreen(index) {
@@ -578,6 +612,13 @@ function openFullscreen(index) {
   var media = buildMedia(item, true);
   content.appendChild(media);
   fullscreen.classList.add('active');
+
+  // If it's a video in fullscreen, autoplay immediately (intentional user action)
+  if (media.tagName === 'VIDEO') {
+    media.autoplay = true;
+    media.play().catch(function(){});
+    observeMedia(content);
+  }
 
   if (media.tagName === 'IMG') {
     var rotation = 0, scale = 1, panX = 0, panY = 0;
@@ -877,12 +918,22 @@ renderGrid();
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Re-observe all media so IntersectionObserver fires again for currently-visible videos
+        binding.webView.evaluateJavascript(
+            "if(typeof visibilityObserver!=='undefined'){" +
+            "document.querySelectorAll('#grid video, #grid iframe[data-src]').forEach(function(el){" +
+            "visibilityObserver.unobserve(el); visibilityObserver.observe(el);});}", null
+        )
+    }
+
     // Auto-mute all videos when leaving the gallery (back, home, switching apps, opening fullscreen browser)
     // This prevents audio bleeding into other activities or the home screen.
     override fun onPause() {
         super.onPause()
         binding.webView.evaluateJavascript(
-            "document.querySelectorAll('video').forEach(function(v){v.muted=true;});" +
+            "document.querySelectorAll('#grid video').forEach(function(v){v.muted=true;v.pause();});" +
             "isMuted=true;" +
             "var btn=document.getElementById('unmuteBtn');if(btn)btn.textContent='🔇';",
             null
