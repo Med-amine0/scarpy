@@ -206,11 +206,19 @@ function renderFolders() {
     var div = document.createElement('div');
     div.className = 'folder';
     div.onclick = function() { Android.openGallery(folder.id); };
-    
-    var icon = folder.type === 'FOLDER' ? '📁' : 
-               folder.type === 'PORNHUB' ? '🎬' : 
+
+    // Long-press to rename
+    var pressTimer = null;
+    div.addEventListener('touchstart', function(e) {
+      pressTimer = setTimeout(function() { Android.renameGallery(folder.id, folder.name); }, 600);
+    });
+    div.addEventListener('touchend', function() { clearTimeout(pressTimer); });
+    div.addEventListener('touchmove', function() { clearTimeout(pressTimer); });
+
+    var icon = folder.type === 'FOLDER' ? '📁' :
+               folder.type === 'PORNHUB' ? '🎬' :
                folder.type === 'REDGIF' ? '🔥' : '🖼️';
-    
+
     div.innerHTML = '<div class="folder-icon">' + icon + '</div>' +
                     '<div class="folder-name">' + folder.name + '</div>' +
                     '<div class="folder-type">' + folder.type + '</div>' +
@@ -313,6 +321,34 @@ renderFolders();
             lifecycleScope.launch {
                 viewModel.deleteGallery(galleryId)
                 loadFolders()
+            }
+        }
+
+        @JavascriptInterface
+        fun renameGallery(galleryId: Long, currentName: String) {
+            runOnUiThread {
+                val input = TextInputEditText(context)
+                input.setText(currentName)
+                input.hint = "Gallery name"
+                MaterialAlertDialogBuilder(context)
+                    .setTitle("Rename")
+                    .setView(input)
+                    .setPositiveButton("Save") { _, _ ->
+                        val newName = input.text?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: return@setPositiveButton
+                        lifecycleScope.launch {
+                            val gallery = withContext(Dispatchers.IO) {
+                                VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)
+                            }
+                            if (gallery != null) {
+                                withContext(Dispatchers.IO) {
+                                    VaultsApp.instance.db.galleryDao().update(gallery.copy(name = newName))
+                                }
+                                loadFolders()
+                            }
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
             }
         }
     }

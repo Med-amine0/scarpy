@@ -160,6 +160,15 @@ function render() {
       '<div class="card-type">' + g.type + '</div>' +
       '<button class="del-btn" onclick="event.stopPropagation();deleteGallery(' + g.id + ')">×</button>';
     card.onclick = function() { Android.openGallery(g.id); };
+
+    // Long-press to rename
+    var pressTimer = null;
+    card.addEventListener('touchstart', function(e) {
+      pressTimer = setTimeout(function() { Android.renameGallery(g.id, g.name); }, 600);
+    });
+    card.addEventListener('touchend', function() { clearTimeout(pressTimer); });
+    card.addEventListener('touchmove', function() { clearTimeout(pressTimer); });
+
     grid.appendChild(card);
   });
 }
@@ -233,6 +242,34 @@ render();
             lifecycleScope.launch {
                 viewModel.deleteGallery(galleryId)
                 loadGalleries()
+            }
+        }
+
+        @JavascriptInterface
+        fun renameGallery(galleryId: Long, currentName: String) {
+            runOnUiThread {
+                val input = TextInputEditText(ctx)
+                input.setText(currentName)
+                input.hint = "Gallery name"
+                MaterialAlertDialogBuilder(ctx)
+                    .setTitle("Rename")
+                    .setView(input)
+                    .setPositiveButton("Save") { _, _ ->
+                        val newName = input.text?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: return@setPositiveButton
+                        lifecycleScope.launch {
+                            val gallery = withContext(Dispatchers.IO) {
+                                VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)
+                            }
+                            if (gallery != null) {
+                                withContext(Dispatchers.IO) {
+                                    VaultsApp.instance.db.galleryDao().update(gallery.copy(name = newName))
+                                }
+                                loadGalleries()
+                            }
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
             }
         }
     }

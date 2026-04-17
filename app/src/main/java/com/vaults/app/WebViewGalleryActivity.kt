@@ -323,7 +323,8 @@ body { background: #000; }
     <button class="col-btn" onclick="changeColumns(1)">+</button>
   </div>
   <button id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;">🔇</button>
-  <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;">✏️</button>
+  <button onclick="Android.exportItems()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-right:8px;" title="Export">📤</button>
+  <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
@@ -371,15 +372,15 @@ function buildThumbElement(item, index) {
   thumb.setAttribute('data-index', index);
   thumb.appendChild(buildMedia(item, false));
 
-  if (galleryType === 'NORMAL' || galleryType === 'PORNHUB') {
+  if (galleryType === 'NORMAL' || galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
     var ec = document.createElement('div');
     ec.className = 'edit-controls';
     var bu = document.createElement('button'); bu.className = 'edit-btn edit-btn-up'; bu.innerHTML = '↑';
-    bu.onclick = function(e) { e.stopPropagation(); Android.moveItem(item.id, -1); };
+    bu.onclick = (function(id, idx) { return function(e) { e.stopPropagation(); moveItemInGrid(id, idx, -1); }; })(item.id, index);
     var bd = document.createElement('button'); bd.className = 'edit-btn edit-btn-down'; bd.innerHTML = '↓';
-    bd.onclick = function(e) { e.stopPropagation(); Android.moveItem(item.id, 1); };
+    bd.onclick = (function(id, idx) { return function(e) { e.stopPropagation(); moveItemInGrid(id, idx, 1); }; })(item.id, index);
     var bx = document.createElement('button'); bx.className = 'edit-btn edit-btn-delete'; bx.innerHTML = '🗑️';
-    bx.onclick = function(e) { e.stopPropagation(); if(confirm('Delete?')) Android.deleteItem(item.id); };
+    bx.onclick = (function(id) { return function(e) { e.stopPropagation(); if(confirm('Delete?')) Android.deleteItem(id); }; })(item.id);
     ec.appendChild(bu); ec.appendChild(bd); ec.appendChild(bx);
     thumb.appendChild(ec);
   }
@@ -750,6 +751,44 @@ function toggleEditMode() {
   document.getElementById('toolbar').classList.toggle('edit-mode-active', window.editMode);
 }
 
+// Swap two grid cells in-place (DOM + items array) then persist to DB.
+// Edit mode stays open — no page reload.
+function moveItemInGrid(itemId, currentIndex, direction) {
+  var newIndex = currentIndex + direction;
+  if (newIndex < 0 || newIndex >= items.length) return;
+
+  // Swap in items array
+  var tmp = items[currentIndex];
+  items[currentIndex] = items[newIndex];
+  items[newIndex] = tmp;
+
+  // Swap DOM nodes
+  var cells = grid.querySelectorAll('.thumb');
+  var cellA = cells[currentIndex];
+  var cellB = cells[newIndex];
+  if (!cellA || !cellB) return;
+
+  // Re-wire the index attributes
+  cellA.setAttribute('data-index', newIndex);
+  cellB.setAttribute('data-index', currentIndex);
+
+  // DOM swap using a placeholder
+  var placeholder = document.createElement('div');
+  grid.insertBefore(placeholder, cellA);
+  grid.insertBefore(cellA, cellB);
+  grid.insertBefore(cellB, placeholder);
+  placeholder.remove();
+
+  // Re-wire onclick handlers for non-REDGIF (REDGIF uses overlay)
+  if (galleryType !== 'REDGIF') {
+    cellA.onclick = (function(i) { return function() { openFullscreen(i); }; })(newIndex);
+    cellB.onclick = (function(i) { return function() { openFullscreen(i); }; })(currentIndex);
+  }
+
+  // Persist swap to DB asynchronously — edit mode stays open
+  Android.moveItem(itemId, direction);
+}
+
 var shownIndices = [];
 function showRandomItem() {
   if (items.length === 0) return;
@@ -783,20 +822,34 @@ renderGrid();
         fun moveItem(itemId: Long, direction: Int) {
             lifecycleScope.launch(Dispatchers.IO) {
                 val items = VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
-                val currentItem = items.find { it.id == itemId }
-                if (currentItem != null) {
-                    val currentIndex = items.indexOf(currentItem)
-                    val newIndex = currentIndex + direction
-                    if (newIndex in items.indices) {
-                        val otherItem = items[newIndex]
-                        val tempSort = currentItem.sortOrder
-                        VaultsApp.instance.db.galleryItemDao().updateSortOrder(itemId, otherItem.sortOrder)
-                        VaultsApp.instance.db.galleryItemDao().updateSortOrder(otherItem.id, tempSort)
-                    }
+                val currentItem = items.find { it.id == itemId } ?: return@launch
+                val currentIndex = items.indexOf(currentItem)
+                val newIndex = currentIndex + direction
+                if (newIndex !in items.indices) return@launch
+                val otherItem = items[newIndex]
+                val tempSort = currentItem.sortOrder
+                VaultsApp.instance.db.galleryItemDao().updateSortOrder(itemId, otherItem.sortOrder)
+                VaultsApp.instance.db.galleryItemDao().updateSortOrder(otherItem.id, tempSort)
+                // No UI reload — JS already swapped the DOM nodes in moveItemInGrid()
+            }
+        }
+
+        @JavascriptInterface
+        fun exportItems() {
+            lifecycleScope.launch {
+                val items = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
                 }
-                withContext(Dispatchers.Main) {
-                    loadGalleryItems()
+                val gallery = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)
                 }
+                val text = items.joinToString("\n") { it.value }
+                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, gallery?.name ?: "Vaults Export")
+                    putExtra(android.content.Intent.EXTRA_TEXT, text)
+                }
+                context.startActivity(android.content.Intent.createChooser(shareIntent, "Export ${items.size} items"))
             }
         }
 
