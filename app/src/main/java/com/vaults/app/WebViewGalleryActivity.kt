@@ -329,16 +329,16 @@ body { background: #000; }
 }
 .swipe-card {
   position: absolute;
-  width: 88%;
-  max-height: 80vh;
-  border-radius: 20px;
+  width: 93%;
+  max-height: 82vh;
+  border-radius: 22px;
   overflow: hidden;
   background: #1a1a1a;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.7);
   touch-action: none;
   user-select: none;
   transform-origin: center bottom;
-  transition: box-shadow 0.1s;
+  will-change: transform;
 }
 .swipe-card img, .swipe-card video, .swipe-card iframe, .swipe-card > div {
   width: 100%;
@@ -354,20 +354,20 @@ body { background: #000; }
 .swipe-card.landscape .card-inner { aspect-ratio: 16/9; }
 .swipe-stamp {
   position: absolute;
-  top: 24px;
-  font-size: 48px;
+  top: 28px;
+  font-size: 52px;
   font-weight: 900;
   border: 5px solid;
-  border-radius: 8px;
-  padding: 6px 18px;
+  border-radius: 10px;
+  padding: 6px 20px;
   opacity: 0;
   pointer-events: none;
   text-transform: uppercase;
   letter-spacing: 2px;
-  transform: rotate(-20deg);
+  transition: opacity 0.05s;
 }
-.swipe-stamp.like  { left: 20px;  color: #4caf50; border-color: #4caf50; transform: rotate(-20deg); }
-.swipe-stamp.nope  { right: 20px; color: #f44336; border-color: #f44336; transform: rotate(20deg); }
+.swipe-stamp.like  { left: 20px;  color: #4caf50; border-color: #4caf50; transform: rotate(-18deg); }
+.swipe-stamp.nope  { right: 20px; color: #f44336; border-color: #f44336; transform: rotate(18deg); }
 #swipe-actions {
   position: fixed;
   bottom: 24px; left: 0; right: 0;
@@ -377,16 +377,18 @@ body { background: #000; }
   z-index: 201;
 }
 .swipe-action-btn {
-  width: 64px; height: 64px;
-  border-radius: 32px;
+  width: 68px; height: 68px;
+  border-radius: 34px;
   border: none;
   font-size: 28px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  transition: transform 0.15s;
 }
-#btn-nope  { background: #1e1e1e; color: #f44336; }
-#btn-like  { background: #1e1e1e; color: #4caf50; }
+.swipe-action-btn:active { transform: scale(0.9); }
+#btn-nope   { background: #1e1e1e; color: #f44336; }
+#btn-like   { background: #1e1e1e; color: #4caf50; }
 #btn-rewind { background: #1e1e1e; color: #ff69b4; font-size: 22px; }
 #swipe-counter {
   color: #555;
@@ -396,15 +398,29 @@ body { background: #000; }
 }
 .swipe-card-back {
   position: absolute;
-  width: 88%;
-  border-radius: 20px;
+  width: 93%;
+  border-radius: 22px;
   overflow: hidden;
   background: #1a1a1a;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
   pointer-events: none;
+  will-change: transform;
 }
 .swipe-card-back .card-inner { aspect-ratio: 3/4; }
 .swipe-card-back.landscape .card-inner { aspect-ratio: 16/9; }
+
+/* ── Particle burst ──────────────────────────────────────────────────────── */
+.particle {
+  position: fixed;
+  pointer-events: none;
+  z-index: 999;
+  font-size: 28px;
+  animation: burst 0.7s ease-out forwards;
+}
+@keyframes burst {
+  0%   { transform: translate(0,0) scale(1);   opacity: 1; }
+  100% { transform: translate(var(--tx), var(--ty)) scale(0.3); opacity: 0; }
+}
 </style>
 </head>
 <body>
@@ -903,11 +919,38 @@ function moveItemInGrid(itemId, currentIndex, direction) {
 }
 
 // ── Tinder swipe engine ───────────────────────────────────────────────────────
-var swipeIndex = 0;       // next card to show
-var swipeHistory = [];    // stack of dismissed indices for rewind
+// Cards are pre-built into a pool so media keeps playing across swipes — no reload.
+// Order is a weighted shuffle: item.weight (default 1) biases probability.
+
+var swipeOrder = [];    // shuffled index list into items[]
+var swipePos = 0;       // position in swipeOrder
+var swipeHistory = [];  // stack of swipePos values for rewind
 var swipeMuted = true;
-var activeCard = null;    // the draggable top card element
-var backCard = null;      // the peek card behind it
+
+// Pool of 3 card elements: [prev(hidden), current(top), next(back)]
+var cardPool = [null, null, null]; // DOM elements
+var cardPoolIdx = [null, null, null]; // which swipeOrder index each holds
+
+function weightedShuffle(arr) {
+  // Fisher-Yates weighted shuffle: items with higher weight appear earlier on average
+  var weighted = [];
+  arr.forEach(function(i) {
+    var w = Math.max(1, (items[i].weight || 1));
+    for (var j = 0; j < w; j++) weighted.push(i);
+  });
+  // Deduplicate by picking one slot per original item weighted by count
+  // Simple approach: shuffle the weighted array, take first occurrence of each
+  for (var i = weighted.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = weighted[i]; weighted[i] = weighted[j]; weighted[j] = t;
+  }
+  var seen = {};
+  var result = [];
+  weighted.forEach(function(i) {
+    if (!seen[i]) { seen[i] = true; result.push(i); }
+  });
+  return result;
+}
 
 function buildSwipeMedia(item) {
   var type = galleryType;
@@ -935,30 +978,30 @@ function buildSwipeMedia(item) {
     p.textContent = 'Loading...';
     return p;
   }
-  if (item.value.match(/\.(mp4|webm)(\?|$)/i) || (item.resolvedUrl && item.resolvedUrl.match(/\.(mp4|webm)/i))) {
+  var src = item.resolvedUrl || item.value;
+  if (src && src.match(/\.(mp4|webm)(\?|$)/i)) {
     var v = document.createElement('video');
-    v.src = item.resolvedUrl || item.value;
-    v.autoplay = true; v.muted = true; v.loop = true;
+    v.src = src; v.autoplay = true; v.muted = true; v.loop = true;
     v.setAttribute('playsinline', '');
     v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
   var img = document.createElement('img');
-  img.src = item.resolvedUrl || item.value;
+  img.src = src || item.value;
   img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
   img.onerror = function() { this.style.opacity = '0.2'; };
   return img;
 }
 
-function makeCard(idx, isBack) {
-  var item = items[idx];
+function buildCardElement(orderPos, isBack) {
+  if (orderPos < 0 || orderPos >= swipeOrder.length) return null;
+  var item = items[swipeOrder[orderPos]];
   var isLandscape = (galleryType === 'PORNHUB');
   var card = document.createElement('div');
   card.className = (isBack ? 'swipe-card-back' : 'swipe-card') + (isLandscape ? ' landscape' : '');
   var inner = document.createElement('div');
   inner.className = 'card-inner';
   inner.appendChild(buildSwipeMedia(item));
-  // LIKE / NOPE stamps
   if (!isBack) {
     var like = document.createElement('div');
     like.className = 'swipe-stamp like'; like.textContent = '♥';
@@ -968,9 +1011,8 @@ function makeCard(idx, isBack) {
     inner.appendChild(nope);
   }
   card.appendChild(inner);
-  // Back card scale/position so it peeks behind
   if (isBack) {
-    card.style.cssText = 'transform: scale(0.94) translateY(12px); z-index: 1; opacity:0.7;';
+    card.style.cssText = 'transform: scale(0.93) translateY(14px); z-index: 1; opacity:0.65;';
   } else {
     card.style.zIndex = '2';
   }
@@ -979,27 +1021,91 @@ function makeCard(idx, isBack) {
 
 function updateCounter() {
   var el = document.getElementById('swipe-counter');
-  if (el) el.textContent = (swipeIndex + 1) + ' / ' + items.length;
+  if (el) el.textContent = (swipePos + 1) + ' / ' + swipeOrder.length;
 }
 
-function renderSwipeStack() {
+function initCardPool() {
   var stack = document.getElementById('card-stack');
   stack.innerHTML = '';
-  activeCard = null; backCard = null;
-  if (swipeIndex >= items.length) {
+  cardPool = [null, null, null];
+  cardPoolIdx = [null, null, null];
+
+  if (swipeOrder.length === 0) {
+    stack.innerHTML = '<div style="color:#555;text-align:center;padding:40px;font-size:18px;">No items</div>';
+    return;
+  }
+  if (swipePos >= swipeOrder.length) {
     stack.innerHTML = '<div style="color:#555;text-align:center;padding:40px;font-size:18px;">All done!<br><span style="font-size:14px;margin-top:8px;display:block;">Tap ↩ to rewind</span></div>';
     updateCounter();
     return;
   }
-  // Back card (next item)
-  if (swipeIndex + 1 < items.length) {
-    backCard = makeCard(swipeIndex + 1, true);
-    stack.appendChild(backCard);
+
+  // Build back card (next)
+  if (swipePos + 1 < swipeOrder.length) {
+    cardPool[2] = buildCardElement(swipePos + 1, true);
+    cardPoolIdx[2] = swipePos + 1;
+    stack.appendChild(cardPool[2]);
   }
-  // Top card
-  activeCard = makeCard(swipeIndex, false);
-  stack.appendChild(activeCard);
-  attachDrag(activeCard);
+  // Build top card (current)
+  cardPool[1] = buildCardElement(swipePos, false);
+  cardPoolIdx[1] = swipePos;
+  stack.appendChild(cardPool[1]);
+  attachDrag(cardPool[1]);
+  updateCounter();
+}
+
+// Advance pool after a swipe: promote back→top, build new next, no media reload
+function advancePool(dir) {
+  var stack = document.getElementById('card-stack');
+  swipePos++;
+
+  if (swipePos >= swipeOrder.length) {
+    // All done — clear pool
+    cardPool = [null, null, null];
+    stack.innerHTML = '<div style="color:#555;text-align:center;padding:40px;font-size:18px;">All done!<br><span style="font-size:14px;margin-top:8px;display:block;">Tap ↩ to rewind</span></div>';
+    updateCounter();
+    return;
+  }
+
+  // The old back card becomes the new top card — just swap class, re-attach drag
+  var newTop = cardPool[2];
+  if (newTop) {
+    newTop.className = newTop.className.replace('swipe-card-back', 'swipe-card');
+    newTop.style.cssText = 'z-index: 2;';
+    newTop.style.transition = 'transform 0.3s cubic-bezier(0.175,0.885,0.32,1.275)';
+    newTop.style.transform = 'scale(1) translateY(0)';
+    newTop.style.opacity = '1';
+    // Add stamps
+    var inner = newTop.querySelector('.card-inner');
+    if (inner && !inner.querySelector('.swipe-stamp')) {
+      var like = document.createElement('div');
+      like.className = 'swipe-stamp like'; like.textContent = '♥';
+      var nope = document.createElement('div');
+      nope.className = 'swipe-stamp nope'; nope.textContent = '✕';
+      inner.appendChild(like); inner.appendChild(nope);
+    }
+    cardPool[1] = newTop;
+    cardPoolIdx[1] = swipePos;
+    setTimeout(function() {
+      if (newTop.style) newTop.style.transition = '';
+      attachDrag(newTop);
+    }, 320);
+  } else {
+    // No back card was ready — build fresh
+    cardPool[1] = buildCardElement(swipePos, false);
+    cardPoolIdx[1] = swipePos;
+    stack.appendChild(cardPool[1]);
+    attachDrag(cardPool[1]);
+  }
+
+  // Pre-build next card and add to back of stack
+  cardPool[2] = null;
+  if (swipePos + 1 < swipeOrder.length) {
+    cardPool[2] = buildCardElement(swipePos + 1, true);
+    cardPoolIdx[2] = swipePos + 1;
+    stack.insertBefore(cardPool[2], cardPool[1]);
+  }
+
   updateCounter();
 }
 
@@ -1009,41 +1115,45 @@ function attachDrag(card) {
   var likeStamp = card.querySelector('.swipe-stamp.like');
   var nopeStamp = card.querySelector('.swipe-stamp.nope');
 
-  function onStart(x, y) { startX = x; startY = y; curX = 0; dragging = true; card.style.transition = 'none'; }
+  function onStart(x, y) {
+    startX = x; startY = y; curX = 0; dragging = true;
+    card.style.transition = 'none';
+  }
   function onMove(x, y) {
     if (!dragging) return;
-    curX = x - startX; curY = (y - startY) * 0.15;
-    var rot = curX * 0.08;
+    curX = x - startX;
+    curY = (y - startY) * 0.12;
+    var rot = curX * 0.07;
     card.style.transform = 'translate(' + curX + 'px,' + curY + 'px) rotate(' + rot + 'deg)';
-    var ratio = Math.min(Math.abs(curX) / 100, 1);
-    if (curX > 0) {
-      likeStamp.style.opacity = ratio;
-      nopeStamp.style.opacity = 0;
-    } else {
-      nopeStamp.style.opacity = ratio;
-      likeStamp.style.opacity = 0;
-    }
-    // Animate back card scaling in as top card moves
+    var ratio = Math.min(Math.abs(curX) / 90, 1);
+    if (curX > 0) { likeStamp.style.opacity = ratio; nopeStamp.style.opacity = 0; }
+    else          { nopeStamp.style.opacity = ratio; likeStamp.style.opacity = 0; }
+    var backCard = cardPool[2];
     if (backCard) {
-      var s = 0.94 + 0.06 * ratio;
-      var ty = 12 - 12 * ratio;
+      var s = 0.93 + 0.07 * ratio;
+      var ty = 14 - 14 * ratio;
       backCard.style.transform = 'scale(' + s + ') translateY(' + ty + 'px)';
-      backCard.style.opacity = 0.7 + 0.3 * ratio;
+      backCard.style.opacity = 0.65 + 0.35 * ratio;
     }
   }
   function onEnd() {
     if (!dragging) return;
     dragging = false;
-    var threshold = window.innerWidth * 0.38;
+    var threshold = window.innerWidth * 0.35;
     if (Math.abs(curX) > threshold) {
-      flyOut(curX > 0 ? 'right' : 'left');
+      flyOut(curX > 0 ? 'right' : 'left', card);
     } else {
-      // Snap back
-      card.style.transition = 'transform 0.3s ease';
+      card.style.transition = 'transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275)';
       card.style.transform = 'translate(0,0) rotate(0deg)';
       likeStamp.style.opacity = 0;
       nopeStamp.style.opacity = 0;
-      if (backCard) { backCard.style.transform = 'scale(0.94) translateY(12px)'; backCard.style.opacity = '0.7'; }
+      var backCard = cardPool[2];
+      if (backCard) {
+        backCard.style.transition = 'transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275), opacity 0.4s';
+        backCard.style.transform = 'scale(0.93) translateY(14px)';
+        backCard.style.opacity = '0.65';
+      }
+      setTimeout(function() { card.style.transition = ''; }, 420);
     }
   }
 
@@ -1051,33 +1161,67 @@ function attachDrag(card) {
   card.addEventListener('touchmove',  function(e) { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
   card.addEventListener('touchend',   function() { onEnd(); });
   card.addEventListener('mousedown',  function(e) { onStart(e.clientX, e.clientY); });
-  document.addEventListener('mousemove', function(e) { onMove(e.clientX, e.clientY); });
+  document.addEventListener('mousemove', function(e) { if (dragging) onMove(e.clientX, e.clientY); });
   document.addEventListener('mouseup',   function() { onEnd(); });
 }
 
-function flyOut(dir) {
-  if (!activeCard) return;
-  var card = activeCard;
-  var tx = dir === 'right' ? window.innerWidth * 1.5 : -window.innerWidth * 1.5;
-  card.style.transition = 'transform 0.35s ease, opacity 0.35s ease';
-  card.style.transform = 'translate(' + tx + 'px, 0) rotate(' + (dir === 'right' ? 30 : -30) + 'deg)';
+function spawnParticles(dir) {
+  var isLike = (dir === 'right');
+  var emoji = isLike ? '♥' : '✕';
+  var color = isLike ? '#4caf50' : '#f44336';
+  var cx = window.innerWidth * (isLike ? 0.75 : 0.25);
+  var cy = window.innerHeight * 0.45;
+  var count = 14;
+  for (var i = 0; i < count; i++) {
+    (function() {
+      var p = document.createElement('div');
+      p.className = 'particle';
+      p.textContent = emoji;
+      p.style.color = color;
+      p.style.left = cx + 'px';
+      p.style.top  = cy + 'px';
+      var angle = (Math.random() * Math.PI * 2);
+      var dist  = 80 + Math.random() * 140;
+      var tx = Math.cos(angle) * dist;
+      var ty = Math.sin(angle) * dist - 60;
+      p.style.setProperty('--tx', tx + 'px');
+      p.style.setProperty('--ty', ty + 'px');
+      p.style.animationDelay = (Math.random() * 0.12) + 's';
+      p.style.fontSize = (22 + Math.random() * 18) + 'px';
+      document.body.appendChild(p);
+      setTimeout(function() { p.remove(); }, 900);
+    })();
+  }
+}
+
+function flyOut(dir, card) {
+  if (!card) card = cardPool[1];
+  if (!card) return;
+  var tx = dir === 'right' ? window.innerWidth * 1.6 : -window.innerWidth * 1.6;
+  var rot = dir === 'right' ? 32 : -32;
+  card.style.transition = 'transform 0.38s cubic-bezier(0.55,0,1,0.45), opacity 0.38s';
+  card.style.transform = 'translate(' + tx + 'px,0) rotate(' + rot + 'deg)';
   card.style.opacity = '0';
+  var backCard = cardPool[2];
   if (backCard) {
-    backCard.style.transition = 'transform 0.35s ease, opacity 0.35s ease';
+    backCard.style.transition = 'transform 0.38s cubic-bezier(0.175,0.885,0.32,1.275), opacity 0.38s';
     backCard.style.transform = 'scale(1) translateY(0)';
     backCard.style.opacity = '1';
   }
-  swipeHistory.push(swipeIndex);
-  swipeIndex++;
-  setTimeout(function() { renderSwipeStack(); }, 340);
+  spawnParticles(dir);
+  swipeHistory.push(swipePos);
+  setTimeout(function() {
+    if (card.parentNode) card.parentNode.removeChild(card);
+    advancePool(dir);
+  }, 370);
 }
 
-function programmaticSwipe(dir) { flyOut(dir); }
+function programmaticSwipe(dir) { flyOut(dir, cardPool[1]); }
 
 function rewindSwipe() {
   if (swipeHistory.length === 0) return;
-  swipeIndex = swipeHistory.pop();
-  renderSwipeStack();
+  swipePos = swipeHistory.pop();
+  initCardPool();
 }
 
 function toggleSwipeMute() {
@@ -1091,25 +1235,26 @@ function toggleSwipeMute() {
 }
 
 function enterSwipeMode() {
-  // Pause grid videos
   document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
-  swipeIndex = 0;
+  // Weighted shuffle on every entry so order is fresh-random each time
+  swipeOrder = weightedShuffle(items.map(function(_, i) { return i; }));
+  swipePos = 0;
   swipeHistory = [];
   swipeMuted = true;
+  cardPool = [null, null, null];
+  cardPoolIdx = [null, null, null];
   var sv = document.getElementById('swipe-view');
   sv.classList.add('active');
-  // Show unmute button for video galleries
   var ub = document.getElementById('unmuteSwipeBtn');
   if (ub && (galleryType === 'PORNHUB' || galleryType === 'REDGIF')) ub.style.display = 'block';
-  renderSwipeStack();
+  initCardPool();
 }
 
 function exitSwipeMode() {
-  // Mute/stop swipe videos
   document.querySelectorAll('#card-stack video').forEach(function(v) { v.pause(); v.muted = true; });
   document.getElementById('swipe-view').classList.remove('active');
   document.getElementById('card-stack').innerHTML = '';
-  // Resume grid observer
+  cardPool = [null, null, null];
   if (typeof visibilityObserver !== 'undefined') {
     document.querySelectorAll('#grid video, #grid iframe[data-src]').forEach(function(el) {
       visibilityObserver.unobserve(el); visibilityObserver.observe(el);
@@ -1119,23 +1264,27 @@ function exitSwipeMode() {
 
 // inject resolved URL into swipe card if it's the active one
 function injectSwipeResolved(itemId, url) {
-  if (!activeCard || swipeIndex >= items.length) return;
-  if (items[swipeIndex] && items[swipeIndex].id == itemId) {
-    var inner = activeCard.querySelector('.card-inner');
-    var first = inner ? inner.firstChild : null;
-    if (first && first.tagName !== 'VIDEO') {
-      items[swipeIndex].resolvedUrl = url;
-      var v = document.createElement('video');
-      v.src = url; v.autoplay = true; v.muted = swipeMuted; v.loop = true;
-      v.volume = defaultVolume / 100;
-      v.setAttribute('playsinline', '');
-      v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-      inner.replaceChild(v, first);
+  // Update cardPool[1] (current top) if it matches
+  [1, 2].forEach(function(slot) {
+    var card = cardPool[slot];
+    var pos  = cardPoolIdx[slot];
+    if (!card || pos == null) return;
+    if (items[swipeOrder[pos]] && items[swipeOrder[pos]].id == itemId) {
+      var inner = card.querySelector('.card-inner');
+      var first = inner ? inner.firstChild : null;
+      if (first && first.tagName !== 'VIDEO') {
+        items[swipeOrder[pos]].resolvedUrl = url;
+        var v = document.createElement('video');
+        v.src = url; v.autoplay = (slot === 1); v.muted = swipeMuted; v.loop = true;
+        v.volume = defaultVolume / 100;
+        v.setAttribute('playsinline', '');
+        v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        inner.replaceChild(v, first);
+      }
     }
-  }
+  });
 }
 
-// Tinder index for backwards-compat with tinderIndex references
 var tinderIndex = -1;
 function showRandomItem() { enterSwipeMode(); }
 
