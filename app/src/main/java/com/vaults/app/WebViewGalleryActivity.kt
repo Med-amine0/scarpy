@@ -249,21 +249,6 @@ body { background: #000; }
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   z-index: 100;
 }
-.random-btn {
-  display: none;
-  position: fixed;
-  bottom: 24px; right: 24px;
-  width: 56px; height: 56px;
-  background: #2a2a2a;
-  border-radius: 28px;
-  border: none;
-  color: #fff;
-  font-size: 24px;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  z-index: 100;
-}
-.fullscreen.active .random-btn { display: block; }
 .edit-controls {
   display: none;
   position: absolute;
@@ -311,6 +296,115 @@ body { background: #000; }
   display: flex; align-items: center; justify-content: center;
 }
 .col-count { color: #ff69b4; font-size: 14px; min-width: 16px; text-align: center; }
+
+/* ── Swipe / Tinder mode ─────────────────────────────────────────────────── */
+#swipe-view {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  flex-direction: column;
+  background: #0a0a0a;
+  z-index: 200;
+  padding-top: calc(56px + env(safe-area-inset-top));
+  padding-bottom: 100px;
+}
+#swipe-view.active { display: flex; }
+#swipe-toolbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  padding-top: calc(12px + env(safe-area-inset-top));
+  background: #1e1e1e;
+  z-index: 201;
+}
+#card-stack {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.swipe-card {
+  position: absolute;
+  width: 88%;
+  max-height: 80vh;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #1a1a1a;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  touch-action: none;
+  user-select: none;
+  transform-origin: center bottom;
+  transition: box-shadow 0.1s;
+}
+.swipe-card img, .swipe-card video, .swipe-card iframe, .swipe-card > div {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.swipe-card .card-inner {
+  width: 100%;
+  aspect-ratio: 3/4;
+  position: relative;
+}
+.swipe-card.landscape .card-inner { aspect-ratio: 16/9; }
+.swipe-stamp {
+  position: absolute;
+  top: 24px;
+  font-size: 48px;
+  font-weight: 900;
+  border: 5px solid;
+  border-radius: 8px;
+  padding: 6px 18px;
+  opacity: 0;
+  pointer-events: none;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  transform: rotate(-20deg);
+}
+.swipe-stamp.like  { left: 20px;  color: #4caf50; border-color: #4caf50; transform: rotate(-20deg); }
+.swipe-stamp.nope  { right: 20px; color: #f44336; border-color: #f44336; transform: rotate(20deg); }
+#swipe-actions {
+  position: fixed;
+  bottom: 24px; left: 0; right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  z-index: 201;
+}
+.swipe-action-btn {
+  width: 64px; height: 64px;
+  border-radius: 32px;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+#btn-nope  { background: #1e1e1e; color: #f44336; }
+#btn-like  { background: #1e1e1e; color: #4caf50; }
+#btn-rewind { background: #1e1e1e; color: #ff69b4; font-size: 22px; }
+#swipe-counter {
+  color: #555;
+  font-size: 13px;
+  text-align: center;
+  margin-top: 6px;
+}
+.swipe-card-back {
+  position: absolute;
+  width: 88%;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #1a1a1a;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  pointer-events: none;
+}
+.swipe-card-back .card-inner { aspect-ratio: 3/4; }
+.swipe-card-back.landscape .card-inner { aspect-ratio: 16/9; }
 </style>
 </head>
 <body>
@@ -324,15 +418,31 @@ body { background: #000; }
   </div>
   <button id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;">🔇</button>
   <button onclick="Android.exportItems()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-right:8px;" title="Export">📤</button>
+  <button onclick="enterSwipeMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-right:8px;" title="Swipe mode">🃏</button>
   <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
 <div class="fullscreen" id="fullscreen">
   <button class="close-btn" onclick="closeFullscreen()">×</button>
   <div class="fullscreen-content" id="fullscreenContent"></div>
-  <button class="random-btn" onclick="showRandomItem()">🎲</button>
 </div>
 <button class="add-btn" onclick="Android.showAddDialog()">+</button>
+
+<!-- Tinder swipe view -->
+<div id="swipe-view">
+  <div id="swipe-toolbar">
+    <button class="back-btn" onclick="exitSwipeMode()">←</button>
+    <span style="color:#ff69b4;font-size:18px;font-weight:bold;flex:1;">Swipe</span>
+    <button id="unmuteSwipeBtn" onclick="toggleSwipeMute()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">🔇</button>
+  </div>
+  <div id="card-stack"></div>
+  <div id="swipe-counter"></div>
+  <div id="swipe-actions">
+    <button class="swipe-action-btn" id="btn-nope"   onclick="programmaticSwipe('left')">✕</button>
+    <button class="swipe-action-btn" id="btn-rewind" onclick="rewindSwipe()">↩</button>
+    <button class="swipe-action-btn" id="btn-like"   onclick="programmaticSwipe('right')">♥</button>
+  </div>
+</div>
 <script>
 var items = $itemsJson;
 var galleryType = '$galleryType';
@@ -496,6 +606,7 @@ function injectResolvedUrl(itemId, url) {
   for (var i = 0; i < items.length; i++) {
     if (items[i].id == itemId) {
       items[i].resolvedUrl = url;
+      // Update grid cell if visible
       var cell = document.querySelector('[data-id="' + itemId + '"]');
       if (cell) {
         var firstChild = cell.firstChild;
@@ -506,6 +617,8 @@ function injectResolvedUrl(itemId, url) {
           observeMedia(cell);
         }
       }
+      // Also update swipe card if swipe mode is open
+      injectSwipeResolved(itemId, url);
       break;
     }
   }
@@ -525,7 +638,6 @@ function renderGrid() {
 }
 
 function openFullscreen(index) {
-  tinderIndex = index; // keep tinder position in sync with manual taps
   var item = items[index];
   var type = galleryType;
   var content = document.getElementById('fullscreenContent');
@@ -579,7 +691,6 @@ function openFullscreen(index) {
       tapOv.onclick = function() {
         returnWrapper(currentIdx, content.firstChild);
         currentIdx = (currentIdx + 1) % items.length;
-        tinderIndex = currentIdx; // keep tinderIndex in sync
         content.innerHTML = '';
         loadIntoFullscreen(currentIdx);
       };
@@ -791,16 +902,242 @@ function moveItemInGrid(itemId, currentIndex, direction) {
   Android.moveItem(itemId, direction);
 }
 
-// Tinder/random mode: advance through items in their sortOrder (gallery order).
-// Uses a weighted pick biased toward items near the current position — not purely
-// sequential so it feels discovered, but respects the gallery's curated order.
-var tinderIndex = -1;
-function showRandomItem() {
-  if (items.length === 0) return;
-  // Move forward in sorted order, wrap around
-  tinderIndex = (tinderIndex + 1) % items.length;
-  openFullscreen(tinderIndex);
+// ── Tinder swipe engine ───────────────────────────────────────────────────────
+var swipeIndex = 0;       // next card to show
+var swipeHistory = [];    // stack of dismissed indices for rewind
+var swipeMuted = true;
+var activeCard = null;    // the draggable top card element
+var backCard = null;      // the peek card behind it
+
+function buildSwipeMedia(item) {
+  var type = galleryType;
+  if (type === 'REDGIF') {
+    var id = item.value.includes('redgifs.com') ? item.value.split('/').pop().split('?')[0] : item.value;
+    id = id.replace(/[^a-zA-Z0-9]/g, '');
+    var f = document.createElement('iframe');
+    f.src = 'https://www.redgifs.com/ifr/' + id;
+    f.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+    f.setAttribute('allowfullscreen', '');
+    return f;
+  }
+  if (type === 'PORNHUB') {
+    if (item.resolvedUrl) {
+      var v = document.createElement('video');
+      v.src = item.resolvedUrl;
+      v.autoplay = true; v.muted = swipeMuted; v.loop = true;
+      v.volume = defaultVolume / 100;
+      v.setAttribute('playsinline', '');
+      v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+      return v;
+    }
+    var p = document.createElement('div');
+    p.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:14px;';
+    p.textContent = 'Loading...';
+    return p;
+  }
+  if (item.value.match(/\.(mp4|webm)(\?|$)/i) || (item.resolvedUrl && item.resolvedUrl.match(/\.(mp4|webm)/i))) {
+    var v = document.createElement('video');
+    v.src = item.resolvedUrl || item.value;
+    v.autoplay = true; v.muted = true; v.loop = true;
+    v.setAttribute('playsinline', '');
+    v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    return v;
+  }
+  var img = document.createElement('img');
+  img.src = item.resolvedUrl || item.value;
+  img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+  img.onerror = function() { this.style.opacity = '0.2'; };
+  return img;
 }
+
+function makeCard(idx, isBack) {
+  var item = items[idx];
+  var isLandscape = (galleryType === 'PORNHUB');
+  var card = document.createElement('div');
+  card.className = (isBack ? 'swipe-card-back' : 'swipe-card') + (isLandscape ? ' landscape' : '');
+  var inner = document.createElement('div');
+  inner.className = 'card-inner';
+  inner.appendChild(buildSwipeMedia(item));
+  // LIKE / NOPE stamps
+  if (!isBack) {
+    var like = document.createElement('div');
+    like.className = 'swipe-stamp like'; like.textContent = '♥';
+    var nope = document.createElement('div');
+    nope.className = 'swipe-stamp nope'; nope.textContent = '✕';
+    inner.appendChild(like);
+    inner.appendChild(nope);
+  }
+  card.appendChild(inner);
+  // Back card scale/position so it peeks behind
+  if (isBack) {
+    card.style.cssText = 'transform: scale(0.94) translateY(12px); z-index: 1; opacity:0.7;';
+  } else {
+    card.style.zIndex = '2';
+  }
+  return card;
+}
+
+function updateCounter() {
+  var el = document.getElementById('swipe-counter');
+  if (el) el.textContent = (swipeIndex + 1) + ' / ' + items.length;
+}
+
+function renderSwipeStack() {
+  var stack = document.getElementById('card-stack');
+  stack.innerHTML = '';
+  activeCard = null; backCard = null;
+  if (swipeIndex >= items.length) {
+    stack.innerHTML = '<div style="color:#555;text-align:center;padding:40px;font-size:18px;">All done!<br><span style="font-size:14px;margin-top:8px;display:block;">Tap ↩ to rewind</span></div>';
+    updateCounter();
+    return;
+  }
+  // Back card (next item)
+  if (swipeIndex + 1 < items.length) {
+    backCard = makeCard(swipeIndex + 1, true);
+    stack.appendChild(backCard);
+  }
+  // Top card
+  activeCard = makeCard(swipeIndex, false);
+  stack.appendChild(activeCard);
+  attachDrag(activeCard);
+  updateCounter();
+}
+
+function attachDrag(card) {
+  var startX = 0, startY = 0, curX = 0, curY = 0;
+  var dragging = false;
+  var likeStamp = card.querySelector('.swipe-stamp.like');
+  var nopeStamp = card.querySelector('.swipe-stamp.nope');
+
+  function onStart(x, y) { startX = x; startY = y; curX = 0; dragging = true; card.style.transition = 'none'; }
+  function onMove(x, y) {
+    if (!dragging) return;
+    curX = x - startX; curY = (y - startY) * 0.15;
+    var rot = curX * 0.08;
+    card.style.transform = 'translate(' + curX + 'px,' + curY + 'px) rotate(' + rot + 'deg)';
+    var ratio = Math.min(Math.abs(curX) / 100, 1);
+    if (curX > 0) {
+      likeStamp.style.opacity = ratio;
+      nopeStamp.style.opacity = 0;
+    } else {
+      nopeStamp.style.opacity = ratio;
+      likeStamp.style.opacity = 0;
+    }
+    // Animate back card scaling in as top card moves
+    if (backCard) {
+      var s = 0.94 + 0.06 * ratio;
+      var ty = 12 - 12 * ratio;
+      backCard.style.transform = 'scale(' + s + ') translateY(' + ty + 'px)';
+      backCard.style.opacity = 0.7 + 0.3 * ratio;
+    }
+  }
+  function onEnd() {
+    if (!dragging) return;
+    dragging = false;
+    var threshold = window.innerWidth * 0.38;
+    if (Math.abs(curX) > threshold) {
+      flyOut(curX > 0 ? 'right' : 'left');
+    } else {
+      // Snap back
+      card.style.transition = 'transform 0.3s ease';
+      card.style.transform = 'translate(0,0) rotate(0deg)';
+      likeStamp.style.opacity = 0;
+      nopeStamp.style.opacity = 0;
+      if (backCard) { backCard.style.transform = 'scale(0.94) translateY(12px)'; backCard.style.opacity = '0.7'; }
+    }
+  }
+
+  card.addEventListener('touchstart', function(e) { onStart(e.touches[0].clientX, e.touches[0].clientY); }, {passive:true});
+  card.addEventListener('touchmove',  function(e) { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
+  card.addEventListener('touchend',   function() { onEnd(); });
+  card.addEventListener('mousedown',  function(e) { onStart(e.clientX, e.clientY); });
+  document.addEventListener('mousemove', function(e) { onMove(e.clientX, e.clientY); });
+  document.addEventListener('mouseup',   function() { onEnd(); });
+}
+
+function flyOut(dir) {
+  if (!activeCard) return;
+  var card = activeCard;
+  var tx = dir === 'right' ? window.innerWidth * 1.5 : -window.innerWidth * 1.5;
+  card.style.transition = 'transform 0.35s ease, opacity 0.35s ease';
+  card.style.transform = 'translate(' + tx + 'px, 0) rotate(' + (dir === 'right' ? 30 : -30) + 'deg)';
+  card.style.opacity = '0';
+  if (backCard) {
+    backCard.style.transition = 'transform 0.35s ease, opacity 0.35s ease';
+    backCard.style.transform = 'scale(1) translateY(0)';
+    backCard.style.opacity = '1';
+  }
+  swipeHistory.push(swipeIndex);
+  swipeIndex++;
+  setTimeout(function() { renderSwipeStack(); }, 340);
+}
+
+function programmaticSwipe(dir) { flyOut(dir); }
+
+function rewindSwipe() {
+  if (swipeHistory.length === 0) return;
+  swipeIndex = swipeHistory.pop();
+  renderSwipeStack();
+}
+
+function toggleSwipeMute() {
+  swipeMuted = !swipeMuted;
+  document.querySelectorAll('#card-stack video').forEach(function(v) {
+    v.muted = swipeMuted;
+    if (!swipeMuted) v.volume = defaultVolume / 100;
+  });
+  var btn = document.getElementById('unmuteSwipeBtn');
+  if (btn) btn.textContent = swipeMuted ? '🔇' : '🔊';
+}
+
+function enterSwipeMode() {
+  // Pause grid videos
+  document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
+  swipeIndex = 0;
+  swipeHistory = [];
+  swipeMuted = true;
+  var sv = document.getElementById('swipe-view');
+  sv.classList.add('active');
+  // Show unmute button for video galleries
+  var ub = document.getElementById('unmuteSwipeBtn');
+  if (ub && (galleryType === 'PORNHUB' || galleryType === 'REDGIF')) ub.style.display = 'block';
+  renderSwipeStack();
+}
+
+function exitSwipeMode() {
+  // Mute/stop swipe videos
+  document.querySelectorAll('#card-stack video').forEach(function(v) { v.pause(); v.muted = true; });
+  document.getElementById('swipe-view').classList.remove('active');
+  document.getElementById('card-stack').innerHTML = '';
+  // Resume grid observer
+  if (typeof visibilityObserver !== 'undefined') {
+    document.querySelectorAll('#grid video, #grid iframe[data-src]').forEach(function(el) {
+      visibilityObserver.unobserve(el); visibilityObserver.observe(el);
+    });
+  }
+}
+
+// inject resolved URL into swipe card if it's the active one
+function injectSwipeResolved(itemId, url) {
+  if (!activeCard || swipeIndex >= items.length) return;
+  if (items[swipeIndex] && items[swipeIndex].id == itemId) {
+    var inner = activeCard.querySelector('.card-inner');
+    var first = inner ? inner.firstChild : null;
+    if (first && first.tagName !== 'VIDEO') {
+      items[swipeIndex].resolvedUrl = url;
+      var v = document.createElement('video');
+      v.src = url; v.autoplay = true; v.muted = swipeMuted; v.loop = true;
+      v.volume = defaultVolume / 100;
+      v.setAttribute('playsinline', '');
+      v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+      inner.replaceChild(v, first);
+    }
+  }
+}
+
+// Tinder index for backwards-compat with tinderIndex references
+var tinderIndex = -1;
+function showRandomItem() { enterSwipeMode(); }
 
 renderGrid();
 </script>
