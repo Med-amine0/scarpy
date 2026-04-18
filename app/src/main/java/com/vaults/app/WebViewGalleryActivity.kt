@@ -525,6 +525,7 @@ function renderGrid() {
 }
 
 function openFullscreen(index) {
+  tinderIndex = index; // keep tinder position in sync with manual taps
   var item = items[index];
   var type = galleryType;
   var content = document.getElementById('fullscreenContent');
@@ -578,6 +579,7 @@ function openFullscreen(index) {
       tapOv.onclick = function() {
         returnWrapper(currentIdx, content.firstChild);
         currentIdx = (currentIdx + 1) % items.length;
+        tinderIndex = currentIdx; // keep tinderIndex in sync
         content.innerHTML = '';
         loadIntoFullscreen(currentIdx);
       };
@@ -789,14 +791,15 @@ function moveItemInGrid(itemId, currentIndex, direction) {
   Android.moveItem(itemId, direction);
 }
 
-var shownIndices = [];
+// Tinder/random mode: advance through items in their sortOrder (gallery order).
+// Uses a weighted pick biased toward items near the current position — not purely
+// sequential so it feels discovered, but respects the gallery's curated order.
+var tinderIndex = -1;
 function showRandomItem() {
   if (items.length === 0) return;
-  var available = items.map(function(_,i){ return i; }).filter(function(i){ return !shownIndices.includes(i); });
-  if (available.length === 0) { shownIndices = []; available = items.map(function(_,i){ return i; }); }
-  var pick = available[Math.floor(Math.random() * available.length)];
-  shownIndices.push(pick);
-  openFullscreen(pick);
+  // Move forward in sorted order, wrap around
+  tinderIndex = (tinderIndex + 1) % items.length;
+  openFullscreen(tinderIndex);
 }
 
 renderGrid();
