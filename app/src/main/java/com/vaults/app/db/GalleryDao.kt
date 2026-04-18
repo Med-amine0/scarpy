@@ -73,4 +73,10 @@ interface GalleryItemDao {
 
     @Query("UPDATE gallery_items SET sortOrder = :sortOrder WHERE id = :id")
     suspend fun updateSortOrder(id: Long, sortOrder: Int)
+
+    @Query("UPDATE gallery_items SET weight = :weight WHERE id = :id")
+    suspend fun updateWeight(id: Long, weight: Int)
+
+    @Query("UPDATE gallery_items SET sortOrder = sortOrder + :shift WHERE galleryId = :galleryId")
+    suspend fun shiftAllSortOrders(galleryId: Long, shift: Int)
 }

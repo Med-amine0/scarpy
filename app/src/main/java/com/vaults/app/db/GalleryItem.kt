@@ -23,5 +23,6 @@ data class GalleryItem(
     val galleryId: Long,
     val value: String,
     val sortOrder: Int = 0,
-    val resolvedUrl: String? = null
+    val resolvedUrl: String? = null,
+    val weight: Int = 1  // 0 = burned (never appears in swipe), default 1
 )

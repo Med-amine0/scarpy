@@ -99,6 +99,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
                     put("id", item.id)
                     put("value", item.value)
                     put("type", type.name)
+                    put("weight", item.weight)
                     val cached = item.resolvedUrl
                     if (cached != null) {
                         val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
@@ -329,8 +330,8 @@ body { background: #000; }
 }
 .swipe-card {
   position: absolute;
-  width: 93%;
-  max-height: 82vh;
+  width: 96%;
+  max-height: 84vh;
   border-radius: 22px;
   overflow: hidden;
   background: #1a1a1a;
@@ -389,7 +390,7 @@ body { background: #000; }
 .swipe-action-btn:active { transform: scale(0.9); }
 #btn-nope   { background: #1e1e1e; color: #f44336; }
 #btn-like   { background: #1e1e1e; color: #4caf50; }
-#btn-rewind { background: #1e1e1e; color: #ff69b4; font-size: 22px; }
+#btn-burn   { background: #1e1e1e; color: #ff6600; font-size: 24px; }
 #swipe-counter {
   color: #555;
   font-size: 13px;
@@ -398,7 +399,7 @@ body { background: #000; }
 }
 .swipe-card-back {
   position: absolute;
-  width: 93%;
+  width: 96%;
   border-radius: 22px;
   overflow: hidden;
   background: #1a1a1a;
@@ -454,9 +455,9 @@ body { background: #000; }
   <div id="card-stack"></div>
   <div id="swipe-counter"></div>
   <div id="swipe-actions">
-    <button class="swipe-action-btn" id="btn-nope"   onclick="programmaticSwipe('left')">✕</button>
-    <button class="swipe-action-btn" id="btn-rewind" onclick="rewindSwipe()">↩</button>
-    <button class="swipe-action-btn" id="btn-like"   onclick="programmaticSwipe('right')">♥</button>
+    <button class="swipe-action-btn" id="btn-nope"  onclick="programmaticSwipe('left')">✕</button>
+    <button class="swipe-action-btn" id="btn-burn"  onclick="burnCurrent()" title="Never show again">🔥</button>
+    <button class="swipe-action-btn" id="btn-like"  onclick="programmaticSwipe('right')">♥</button>
   </div>
 </div>
 <script>
@@ -932,14 +933,14 @@ var cardPool = [null, null, null]; // DOM elements
 var cardPoolIdx = [null, null, null]; // which swipeOrder index each holds
 
 function weightedShuffle(arr) {
-  // Fisher-Yates weighted shuffle: items with higher weight appear earlier on average
+  // Items with weight=0 are burned — never appear in swipe mode
   var weighted = [];
   arr.forEach(function(i) {
-    var w = Math.max(1, (items[i].weight || 1));
+    var w = items[i].weight;
+    if (w == null) w = 1;
+    if (w <= 0) return; // burned — skip
     for (var j = 0; j < w; j++) weighted.push(i);
   });
-  // Deduplicate by picking one slot per original item weighted by count
-  // Simple approach: shuffle the weighted array, take first occurrence of each
   for (var i = weighted.length - 1; i > 0; i--) {
     var j = Math.floor(Math.random() * (i + 1));
     var t = weighted[i]; weighted[i] = weighted[j]; weighted[j] = t;
@@ -1218,10 +1219,12 @@ function flyOut(dir, card) {
 
 function programmaticSwipe(dir) { flyOut(dir, cardPool[1]); }
 
-function rewindSwipe() {
-  if (swipeHistory.length === 0) return;
-  swipePos = swipeHistory.pop();
-  initCardPool();
+function burnCurrent() {
+  if (swipePos >= swipeOrder.length) return;
+  var itemIdx = swipeOrder[swipePos];
+  items[itemIdx].weight = 0;           // mark locally so shuffle skips it
+  Android.burnItem(items[itemIdx].id); // persist weight=0 to DB
+  flyOut('left', cardPool[1]);         // fly out like a nope
 }
 
 function toggleSwipeMute() {
@@ -1393,6 +1396,13 @@ renderGrid();
         }
 
         @JavascriptInterface
+        fun burnItem(itemId: Long) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryItemDao().updateWeight(itemId, 0)
+            }
+        }
+
+        @JavascriptInterface
         fun goBack() {
             finish()
         }
@@ -1407,25 +1417,53 @@ renderGrid();
 
         @JavascriptInterface
         fun showAddDialog() {
-            val input = android.widget.EditText(context)
-            input.hint = "Enter URLs (comma or newline separated)"
-            input.setTextColor(android.graphics.Color.WHITE)
-            input.setBackgroundColor(android.graphics.Color.parseColor("#2a2a2a"))
-
-            android.app.AlertDialog.Builder(context)
-                .setTitle("Add Media")
-                .setView(input)
-                .setPositiveButton("Add") { _, _ ->
-                    val text = input.text.toString()
-                    if (text.isNotBlank()) {
-                        addItems(text)
-                    }
+            runOnUiThread {
+                val container = android.widget.LinearLayout(context).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    setPadding(48, 24, 48, 8)
                 }
-                .setNegativeButton("Cancel", null)
-                .show()
+
+                val input = android.widget.EditText(context).apply {
+                    hint = "Enter URLs (comma or newline separated)"
+                    setTextColor(android.graphics.Color.WHITE)
+                    setBackgroundColor(android.graphics.Color.parseColor("#2a2a2a"))
+                    setPadding(16, 16, 16, 16)
+                    minLines = 3
+                }
+                container.addView(input)
+
+                val topRow = android.widget.LinearLayout(context).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, 16, 0, 0)
+                }
+                val topLabel = android.widget.TextView(context).apply {
+                    text = "Add to top"
+                    setTextColor(android.graphics.Color.WHITE)
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val topSwitch = android.widget.Switch(context).apply {
+                    isChecked = false
+                }
+                topRow.addView(topLabel)
+                topRow.addView(topSwitch)
+                container.addView(topRow)
+
+                android.app.AlertDialog.Builder(context)
+                    .setTitle("Add Media")
+                    .setView(container)
+                    .setPositiveButton("Add") { _, _ ->
+                        val text = input.text.toString()
+                        if (text.isNotBlank()) {
+                            addItems(text, topSwitch.isChecked)
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
         }
 
-        private fun addItems(text: String) {
+        private fun addItems(text: String, addToTop: Boolean = false) {
             lifecycleScope.launch {
                 val values = text.replace("\"", "")
                     .split(",", "\n", "\r\n")
@@ -1437,22 +1475,30 @@ renderGrid();
                     VaultsApp.instance.db.galleryItemDao().getExistingValues(galleryId).toSet()
                 }
                 val newValues = values.filter { it !in existing }
+                if (newValues.isEmpty()) { loadGalleryItems(); return@launch }
 
-                val currentMax = withContext(Dispatchers.IO) {
-                    VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
-                        .maxOfOrNull { it.sortOrder } ?: -1
-                }
-
-                val items = newValues.mapIndexed { index, value ->
-                    GalleryItem(
-                        galleryId = galleryId,
-                        value = value,
-                        sortOrder = currentMax + index + 1
-                    )
-                }
-
-                withContext(Dispatchers.IO) {
-                    VaultsApp.instance.db.galleryItemDao().insertAll(items)
+                if (addToTop) {
+                    // Shift all existing items up to make room at the front
+                    withContext(Dispatchers.IO) {
+                        VaultsApp.instance.db.galleryItemDao().shiftAllSortOrders(galleryId, newValues.size)
+                    }
+                    val newItems = newValues.mapIndexed { index, value ->
+                        GalleryItem(galleryId = galleryId, value = value, sortOrder = index)
+                    }
+                    withContext(Dispatchers.IO) {
+                        VaultsApp.instance.db.galleryItemDao().insertAll(newItems)
+                    }
+                } else {
+                    val currentMax = withContext(Dispatchers.IO) {
+                        VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
+                            .maxOfOrNull { it.sortOrder } ?: -1
+                    }
+                    val newItems = newValues.mapIndexed { index, value ->
+                        GalleryItem(galleryId = galleryId, value = value, sortOrder = currentMax + index + 1)
+                    }
+                    withContext(Dispatchers.IO) {
+                        VaultsApp.instance.db.galleryItemDao().insertAll(newItems)
+                    }
                 }
 
                 loadGalleryItems()
