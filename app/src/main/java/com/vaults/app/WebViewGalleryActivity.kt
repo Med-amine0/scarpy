@@ -585,7 +585,14 @@ function buildMedia(item, isFullscreen) {
   }
 
   var img = document.createElement('img');
-  img.src = value;
+  if (isFullscreen) {
+    img.src = value;
+  } else {
+    img.setAttribute('data-src', value);
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='; // 1px placeholder
+    img.setAttribute('loading', 'lazy');
+    img.setAttribute('decoding', 'async');
+  }
   img.style.cssText = isFullscreen
     ? 'width:100%;height:100%;object-fit:contain;display:block;'
     : 'width:100%;height:100%;object-fit:cover;';
@@ -593,7 +600,7 @@ function buildMedia(item, isFullscreen) {
   return img;
 }
 
-// IntersectionObserver: play videos and load iframes only when visible
+// IntersectionObserver: play videos and load iframes/images only when visible
 var visibilityObserver = new IntersectionObserver(function(entries) {
   entries.forEach(function(entry) {
     var el = entry.target;
@@ -603,20 +610,18 @@ var visibilityObserver = new IntersectionObserver(function(entries) {
       } else {
         if (!el.paused) { el.pause(); }
       }
-    } else if (el.tagName === 'IFRAME') {
-      // Lazy-load iframe src on first intersection
-      if (entry.isIntersecting && !el.src && el.getAttribute('data-src')) {
-        el.src = el.getAttribute('data-src');
-      }
+    } else if (entry.isIntersecting && el.getAttribute('data-src')) {
+      // Lazy-load: swap data-src → src for both iframes and images
+      el.src = el.getAttribute('data-src');
+      el.removeAttribute('data-src');
+      visibilityObserver.unobserve(el); // only need to fire once for images
     }
   });
-}, { rootMargin: '100px 0px', threshold: 0.01 });
+}, { rootMargin: '200px 0px', threshold: 0.01 });
 
 function observeMedia(container) {
-  var videos = container.querySelectorAll('video');
-  videos.forEach(function(v) { visibilityObserver.observe(v); });
-  var iframes = container.querySelectorAll('iframe[data-src]');
-  iframes.forEach(function(f) { visibilityObserver.observe(f); });
+  container.querySelectorAll('video').forEach(function(v) { visibilityObserver.observe(v); });
+  container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
 }
 
 function injectResolvedUrl(itemId, url) {
