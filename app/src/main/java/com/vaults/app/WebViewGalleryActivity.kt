@@ -100,6 +100,11 @@ class WebViewGalleryActivity : AppCompatActivity() {
                     put("value", item.value)
                     put("type", type.name)
                     put("weight", item.weight)
+                    // Compute .md.jpg thumbnail URL if useMd is set
+                    if (item.useMd) {
+                        val thumb = item.value.replace(Regex("\\.jpg$", RegexOption.IGNORE_CASE), ".md.jpg")
+                        put("thumbUrl", thumb)
+                    }
                     val cached = item.resolvedUrl
                     if (cached != null) {
                         val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
@@ -586,10 +591,11 @@ function buildMedia(item, isFullscreen) {
 
   var img = document.createElement('img');
   if (isFullscreen) {
-    img.src = value;
+    img.src = value; // always full resolution in fullscreen
   } else {
-    img.setAttribute('data-src', value);
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='; // 1px placeholder
+    var displayUrl = item.thumbUrl || value; // use .md.jpg thumbnail if available
+    img.setAttribute('data-src', displayUrl);
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
     img.setAttribute('loading', 'lazy');
     img.setAttribute('decoding', 'async');
   }
@@ -992,10 +998,22 @@ function buildSwipeMedia(item) {
     v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
+  // For images: show .md.jpg thumbnail on the card, full URL opens on tap
+  var displaySrc = item.thumbUrl || src || item.value;
   var img = document.createElement('img');
-  img.src = src || item.value;
+  img.src = displaySrc;
   img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
   img.onerror = function() { this.style.opacity = '0.2'; };
+  // Tap opens the full-resolution image in fullscreen viewer
+  if (item.thumbUrl) {
+    img.style.cursor = 'pointer';
+    img.addEventListener('click', (function(fullUrl) {
+      return function(e) {
+        e.stopPropagation();
+        openSwipeFullscreen(fullUrl);
+      };
+    })(item.value));
+  }
   return img;
 }
 
@@ -1222,6 +1240,17 @@ function flyOut(dir, card) {
   }, 370);
 }
 
+function openSwipeFullscreen(url) {
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:9999;display:flex;align-items:center;justify-content:center;';
+  var img = document.createElement('img');
+  img.src = url;
+  img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+  ov.appendChild(img);
+  ov.onclick = function() { ov.remove(); };
+  document.body.appendChild(ov);
+}
+
 function programmaticSwipe(dir) { flyOut(dir, cardPool[1]); }
 
 function burnCurrent() {
@@ -1437,22 +1466,26 @@ renderGrid();
                 }
                 container.addView(input)
 
-                val topRow = android.widget.LinearLayout(context).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(0, 16, 0, 0)
+                fun makeRow(label: String, default: Boolean): android.widget.Switch {
+                    val row = android.widget.LinearLayout(context).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        setPadding(0, 16, 0, 0)
+                    }
+                    val tv = android.widget.TextView(context).apply {
+                        text = label
+                        setTextColor(android.graphics.Color.WHITE)
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    val sw = android.widget.Switch(context).apply { isChecked = default }
+                    row.addView(tv); row.addView(sw)
+                    container.addView(row)
+                    return sw
                 }
-                val topLabel = android.widget.TextView(context).apply {
-                    text = "Add to top"
-                    setTextColor(android.graphics.Color.WHITE)
-                    layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                }
-                val topSwitch = android.widget.Switch(context).apply {
-                    isChecked = false
-                }
-                topRow.addView(topLabel)
-                topRow.addView(topSwitch)
-                container.addView(topRow)
+
+                val topSwitch = makeRow("Add to top", false)
+                // MD toggle only makes sense for NORMAL image galleries
+                val mdSwitch = if (galleryType == GalleryType.NORMAL) makeRow("MD thumbs (.md.jpg)", false) else null
 
                 android.app.AlertDialog.Builder(context)
                     .setTitle("Add Media")
@@ -1460,7 +1493,7 @@ renderGrid();
                     .setPositiveButton("Add") { _, _ ->
                         val text = input.text.toString()
                         if (text.isNotBlank()) {
-                            addItems(text, topSwitch.isChecked)
+                            addItems(text, topSwitch.isChecked, mdSwitch?.isChecked ?: false)
                         }
                     }
                     .setNegativeButton("Cancel", null)
@@ -1468,7 +1501,7 @@ renderGrid();
             }
         }
 
-        private fun addItems(text: String, addToTop: Boolean = false) {
+        private fun addItems(text: String, addToTop: Boolean = false, useMd: Boolean = false) {
             lifecycleScope.launch {
                 val values = text.replace("\"", "")
                     .split(",", "\n", "\r\n")
@@ -1483,12 +1516,11 @@ renderGrid();
                 if (newValues.isEmpty()) { loadGalleryItems(); return@launch }
 
                 if (addToTop) {
-                    // Shift all existing items up to make room at the front
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().shiftAllSortOrders(galleryId, newValues.size)
                     }
                     val newItems = newValues.mapIndexed { index, value ->
-                        GalleryItem(galleryId = galleryId, value = value, sortOrder = index)
+                        GalleryItem(galleryId = galleryId, value = value, sortOrder = index, useMd = useMd)
                     }
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().insertAll(newItems)
@@ -1499,7 +1531,7 @@ renderGrid();
                             .maxOfOrNull { it.sortOrder } ?: -1
                     }
                     val newItems = newValues.mapIndexed { index, value ->
-                        GalleryItem(galleryId = galleryId, value = value, sortOrder = currentMax + index + 1)
+                        GalleryItem(galleryId = galleryId, value = value, sortOrder = currentMax + index + 1, useMd = useMd)
                     }
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().insertAll(newItems)

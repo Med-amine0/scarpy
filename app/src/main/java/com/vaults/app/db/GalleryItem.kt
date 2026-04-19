@@ -24,5 +24,6 @@ data class GalleryItem(
     val value: String,
     val sortOrder: Int = 0,
     val resolvedUrl: String? = null,
-    val weight: Int = 1  // 0 = burned (never appears in swipe), default 1
+    val weight: Int = 1,
+    val useMd: Boolean = false  // if true, grid/swipe show .md.jpg thumbnail; fullscreen loads full URL
 )
