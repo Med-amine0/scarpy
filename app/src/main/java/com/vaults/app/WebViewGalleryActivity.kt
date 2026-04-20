@@ -242,19 +242,47 @@ body { background: #000; }
   cursor: pointer;
   z-index: 1001;
 }
-.add-btn {
-  position: fixed;
-  bottom: 24px; right: 80px;
-  width: 56px; height: 56px;
-  background: #ff69b4;
-  border-radius: 28px;
-  border: none;
-  color: #fff;
-  font-size: 28px;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  z-index: 100;
+.thumb.selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  border: 3px solid #ff69b4;
+  background: rgba(255,105,180,0.18);
+  pointer-events: none;
+  z-index: 4;
 }
+.thumb.selected .select-check {
+  display: flex;
+}
+.select-check {
+  display: none;
+  position: absolute;
+  top: 6px; left: 6px;
+  width: 22px; height: 22px;
+  border-radius: 11px;
+  background: #ff69b4;
+  color: #fff;
+  font-size: 13px;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  pointer-events: none;
+}
+#copy-toast {
+  position: fixed;
+  bottom: 80px; left: 50%; transform: translateX(-50%);
+  background: rgba(255,105,180,0.92);
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+#copy-toast.show { opacity: 1; }
 .edit-controls {
   display: none;
   position: absolute;
@@ -439,8 +467,10 @@ body { background: #000; }
     <button class="col-btn" onclick="changeColumns(1)">+</button>
   </div>
   <button id="unmuteBtn" onclick="toggleMuteAll()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;">🔇</button>
-  <button onclick="Android.exportItems()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-right:8px;" title="Export">📤</button>
+  <button onclick="Android.exportItems()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-left:auto;margin-right:8px;" title="Export">📤</button>
   <button onclick="enterSwipeMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-right:8px;" title="Swipe mode">🃏</button>
+  <button onclick="Android.showAddDialog()" style="background:transparent;border:none;color:#ff69b4;font-size:22px;cursor:pointer;margin-right:8px;" title="Add">＋</button>
+  <button id="btn-delete-sel" onclick="deleteSelected()" style="display:none;background:transparent;border:none;color:#f44336;font-size:20px;cursor:pointer;margin-right:8px;" title="Delete selected">🗑️</button>
   <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
@@ -448,7 +478,7 @@ body { background: #000; }
   <button class="close-btn" onclick="closeFullscreen()">×</button>
   <div class="fullscreen-content" id="fullscreenContent"></div>
 </div>
-<button class="add-btn" onclick="Android.showAddDialog()">+</button>
+<div id="copy-toast">URL copied</div>
 
 <!-- Tinder swipe view -->
 <div id="swipe-view">
@@ -504,6 +534,12 @@ function buildThumbElement(item, index) {
   thumb.setAttribute('data-index', index);
   thumb.appendChild(buildMedia(item, false));
 
+  // Selection checkmark (visible when thumb.selected)
+  var check = document.createElement('div');
+  check.className = 'select-check';
+  check.textContent = '✓';
+  thumb.appendChild(check);
+
   if (galleryType === 'NORMAL' || galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
     var ec = document.createElement('div');
     ec.className = 'edit-controls';
@@ -511,17 +547,30 @@ function buildThumbElement(item, index) {
     bu.onclick = (function(id, idx) { return function(e) { e.stopPropagation(); moveItemInGrid(id, idx, -1); }; })(item.id, index);
     var bd = document.createElement('button'); bd.className = 'edit-btn edit-btn-down'; bd.innerHTML = '↓';
     bd.onclick = (function(id, idx) { return function(e) { e.stopPropagation(); moveItemInGrid(id, idx, 1); }; })(item.id, index);
+    // Delete icon now toggles selection
     var bx = document.createElement('button'); bx.className = 'edit-btn edit-btn-delete'; bx.innerHTML = '🗑️';
-    bx.onclick = (function(id) { return function(e) { e.stopPropagation(); if(confirm('Delete?')) Android.deleteItem(id); }; })(item.id);
+    bx.onclick = (function(t, id) { return function(e) { e.stopPropagation(); toggleSelect(t, id); }; })(thumb, item.id);
     ec.appendChild(bu); ec.appendChild(bd); ec.appendChild(bx);
     thumb.appendChild(ec);
   }
 
+  // Double-tap copies real URL (item.value, never the .md thumb)
+  var lastTap = 0;
+  thumb.addEventListener('touchend', function(e) {
+    var now = Date.now();
+    if (now - lastTap < 300) {
+      e.preventDefault();
+      e.stopPropagation();
+      Android.copyToClipboard(item.value);
+      showCopyToast();
+    }
+    lastTap = now;
+  });
+
   if (galleryType === 'REDGIF') {
-    // Transparent overlay catches 1st tap → expand. Removed after expand so 2nd tap hits iframe → InAppBrowser.
     thumb.appendChild(makeOverlay(index));
   } else {
-    thumb.onclick = function() { openFullscreen(index); };
+    thumb.onclick = function() { if (!window.editMode) openFullscreen(index); };
   }
   return thumb;
 }
@@ -886,10 +935,46 @@ function closeFullscreen() {
   document.getElementById('fullscreenContent').innerHTML = '';
 }
 
+var selectedIds = new Set();
+
+function toggleSelect(thumb, id) {
+  if (thumb.classList.contains('selected')) {
+    thumb.classList.remove('selected');
+    selectedIds.delete(id);
+  } else {
+    thumb.classList.add('selected');
+    selectedIds.add(id);
+  }
+  var delBtn = document.getElementById('btn-delete-sel');
+  if (delBtn) delBtn.style.display = selectedIds.size > 0 ? 'block' : 'none';
+}
+
+function deleteSelected() {
+  if (selectedIds.size === 0) return;
+  if (!confirm('Delete ' + selectedIds.size + ' item(s)?')) return;
+  var ids = Array.from(selectedIds).join(',');
+  Android.deleteItems(ids);
+  selectedIds.clear();
+}
+
+function showCopyToast() {
+  var t = document.getElementById('copy-toast');
+  if (!t) return;
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 1500);
+}
+
 function toggleEditMode() {
   window.editMode = !window.editMode;
   document.body.classList.toggle('edit-mode', window.editMode);
   document.getElementById('toolbar').classList.toggle('edit-mode-active', window.editMode);
+  if (!window.editMode) {
+    // Clear all selections when exiting edit mode
+    selectedIds.clear();
+    document.querySelectorAll('.thumb.selected').forEach(function(t) { t.classList.remove('selected'); });
+    var delBtn = document.getElementById('btn-delete-sel');
+    if (delBtn) delBtn.style.display = 'none';
+  }
 }
 
 // Swap two grid cells in-place (DOM + items array) then persist to DB.
@@ -1342,6 +1427,23 @@ renderGrid();
                 VaultsApp.instance.db.galleryItemDao().deleteById(itemId)
                 loadGalleryItems()
             }
+        }
+
+        @JavascriptInterface
+        fun deleteItems(ids: String) {
+            lifecycleScope.launch {
+                val idList = ids.split(",").mapNotNull { it.trim().toLongOrNull() }
+                withContext(Dispatchers.IO) {
+                    idList.forEach { VaultsApp.instance.db.galleryItemDao().deleteById(it) }
+                }
+                loadGalleryItems()
+            }
+        }
+
+        @JavascriptInterface
+        fun copyToClipboard(text: String) {
+            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("url", text))
         }
 
         @JavascriptInterface
