@@ -34,6 +34,9 @@ interface GalleryDao {
 
     @Query("UPDATE galleries SET sortOrder = :sortOrder WHERE id = :id")
     suspend fun updateSortOrder(id: Long, sortOrder: Int)
+
+    @Query("UPDATE galleries SET columnCount = :columnCount WHERE id = :id")
+    suspend fun updateColumnCount(id: Long, columnCount: Int)
 }
 
 @Dao

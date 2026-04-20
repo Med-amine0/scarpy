@@ -117,7 +117,10 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
 
             val defaultVolume = prefs.getInt("default_volume", 5)
-            loadThumbnailGridFast(itemsJson.toString(), defaultVolume)
+            val savedCols = withContext(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)?.columnCount ?: 0
+            }
+            loadThumbnailGridFast(itemsJson.toString(), defaultVolume, savedCols)
 
             // Resolve uncached/expired items in parallel — fast, all at once
             if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
@@ -160,7 +163,7 @@ body { background: #000; display: flex; justify-content: center; align-items: ce
 </html>
     """.trimIndent()
 
-    private fun loadThumbnailGridFast(itemsJson: String, defaultVolume: Int) {
+    private fun loadThumbnailGridFast(itemsJson: String, defaultVolume: Int, savedCols: Int = 0) {
         val galleryType = this.galleryType.name
 
         val html = """
@@ -516,7 +519,8 @@ function toggleMuteAll() {
 
 var grid = document.getElementById('grid');
 var defaultCols = (galleryType === 'PORNHUB' || galleryType === 'REDGIF') ? 2 : 3;
-var currentCols = defaultCols;
+var savedCols = $savedCols;
+var currentCols = savedCols > 0 ? savedCols : defaultCols;
 grid.style.setProperty('--cols', currentCols);
 document.getElementById('colCount').textContent = currentCols;
 var thumbClass = (galleryType === 'PORNHUB') ? 'thumb landscape' : 'thumb portrait';
@@ -525,6 +529,7 @@ function changeColumns(delta) {
   currentCols = Math.max(1, Math.min(6, currentCols + delta));
   grid.style.setProperty('--cols', currentCols);
   document.getElementById('colCount').textContent = currentCols;
+  Android.saveColumnCount(currentCols);
 }
 
 function buildThumbElement(item, index) {
@@ -1083,22 +1088,16 @@ function buildSwipeMedia(item) {
     v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
-  // For images: show .md.jpg thumbnail on the card, full URL opens on tap
-  var displaySrc = item.thumbUrl || src || item.value;
+  // Always use real full URL in swipe mode (never .md thumb)
   var img = document.createElement('img');
-  img.src = displaySrc;
+  img.src = item.value;
   img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
   img.onerror = function() { this.style.opacity = '0.2'; };
-  // Tap opens the full-resolution image in fullscreen viewer
-  if (item.thumbUrl) {
-    img.style.cursor = 'pointer';
-    img.addEventListener('click', (function(fullUrl) {
-      return function(e) {
-        e.stopPropagation();
-        openSwipeFullscreen(fullUrl);
-      };
-    })(item.value));
-  }
+  // Tap opens full-res in overlay (same behaviour regardless of md flag)
+  img.style.cursor = 'pointer';
+  img.addEventListener('click', (function(fullUrl) {
+    return function(e) { e.stopPropagation(); openSwipeFullscreen(fullUrl); };
+  })(item.value));
   return img;
 }
 
@@ -1108,10 +1107,16 @@ function buildCardElement(orderPos, isBack) {
   var isLandscape = (galleryType === 'PORNHUB');
   var card = document.createElement('div');
   card.className = (isBack ? 'swipe-card-back' : 'swipe-card') + (isLandscape ? ' landscape' : '');
+  card.setAttribute('data-order-pos', orderPos);
   var inner = document.createElement('div');
   inner.className = 'card-inner';
-  inner.appendChild(buildSwipeMedia(item));
-  if (!isBack) {
+  if (isBack) {
+    // Lazy placeholder — real media loads when this card is promoted to top
+    var ph = document.createElement('div');
+    ph.style.cssText = 'width:100%;height:100%;background:#1a1a1a;';
+    inner.appendChild(ph);
+  } else {
+    inner.appendChild(buildSwipeMedia(item));
     var like = document.createElement('div');
     like.className = 'swipe-stamp like'; like.textContent = '♥';
     var nope = document.createElement('div');
@@ -1126,6 +1131,25 @@ function buildCardElement(orderPos, isBack) {
     card.style.zIndex = '2';
   }
   return card;
+}
+
+// Load real media into a card that was previously a lazy back-card placeholder
+function hydrateCard(card, orderPos) {
+  if (!card || orderPos < 0 || orderPos >= swipeOrder.length) return;
+  var item = items[swipeOrder[orderPos]];
+  var inner = card.querySelector('.card-inner');
+  if (!inner) return;
+  var ph = inner.firstChild;
+  // Replace placeholder with real media
+  var media = buildSwipeMedia(item);
+  inner.replaceChild(media, ph);
+  // Add stamps
+  var like = document.createElement('div');
+  like.className = 'swipe-stamp like'; like.textContent = '♥';
+  var nope = document.createElement('div');
+  nope.className = 'swipe-stamp nope'; nope.textContent = '✕';
+  inner.appendChild(like);
+  inner.appendChild(nope);
 }
 
 function updateCounter() {
@@ -1176,9 +1200,11 @@ function advancePool(dir) {
     return;
   }
 
-  // The old back card becomes the new top card — just swap class, re-attach drag
+  // The old back card becomes the new top card — hydrate it (load real media), swap class, re-attach drag
   var newTop = cardPool[2];
   if (newTop) {
+    // Load real media now that this card is about to be the top
+    hydrateCard(newTop, swipePos);
     newTop.className = newTop.className.replace('swipe-card-back', 'swipe-card');
     newTop.style.cssText = 'z-index: 2;';
     newTop.style.transition = 'transform 0.3s cubic-bezier(0.175,0.885,0.32,1.275)';
@@ -1528,6 +1554,13 @@ renderGrid();
                         GalleryItem(galleryId = targetGalleryId, value = value, sortOrder = currentMax + 1)
                     )
                 }
+            }
+        }
+
+        @JavascriptInterface
+        fun saveColumnCount(count: Int) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryDao().updateColumnCount(galleryId, count)
             }
         }
 
