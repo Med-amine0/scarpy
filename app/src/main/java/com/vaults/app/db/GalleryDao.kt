@@ -92,4 +92,3 @@ interface GalleryItemDao {
     @Query("SELECT COUNT(*) FROM gallery_items WHERE galleryId = :galleryId")
     suspend fun countItems(galleryId: Long): Int
 }
-}
