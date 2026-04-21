@@ -377,11 +377,18 @@ body { background: #000; }
   transform-origin: center bottom;
   will-change: transform;
 }
-.swipe-card img, .swipe-card video, .swipe-card iframe, .swipe-card > div {
+.swipe-card video, .swipe-card iframe, .swipe-card > div {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+.swipe-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
 }
 .swipe-card .card-inner {
   width: 100%;
@@ -1091,7 +1098,7 @@ function buildSwipeMedia(item) {
   // Always use real full URL in swipe mode (never .md thumb)
   var img = document.createElement('img');
   img.src = item.value;
-  img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+  img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;background:#000;';
   img.onerror = function() { this.style.opacity = '0.2'; };
   // Tap opens full-res in overlay (same behaviour regardless of md flag)
   img.style.cursor = 'pointer';
