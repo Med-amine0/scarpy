@@ -74,10 +74,17 @@ class FolderActivity : AppCompatActivity() {
 
             val galJson = JSONArray()
             galleries.forEach { g ->
+                val count = withContext(Dispatchers.IO) {
+                    if (g.type == com.vaults.app.db.GalleryType.FOLDER)
+                        VaultsApp.instance.db.galleryDao().countChildGalleries(g.id)
+                    else
+                        VaultsApp.instance.db.galleryItemDao().countItems(g.id)
+                }
                 galJson.put(JSONObject().apply {
                     put("id", g.id)
                     put("name", g.name)
                     put("type", g.type.name)
+                    put("count", count)
                 })
             }
 
@@ -111,6 +118,7 @@ body { background:#121212; min-height:100vh; }
 .card-icon { font-size:32px; margin-bottom:8px; }
 .card-name { color:#ff69b4; font-size:14px; text-align:center; padding:0 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
 .card-type { color:#888; font-size:10px; margin-top:4px; }
+.card-count { color:#aaa; font-size:11px; margin-top:3px; }
 .del-btn {
   display:none; position:absolute; top:-8px; right:-8px;
   width:26px; height:26px; background:#f44336; border-radius:13px;
@@ -158,6 +166,7 @@ function render() {
       '<div class="card-icon">' + icon(g.type) + '</div>' +
       '<div class="card-name">' + g.name + '</div>' +
       '<div class="card-type">' + g.type + '</div>' +
+      '<div class="card-count">' + g.count + '</div>' +
       '<button class="del-btn" onclick="event.stopPropagation();deleteGallery(' + g.id + ')">×</button>';
     card.onclick = function() { Android.openGallery(g.id); };
 

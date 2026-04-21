@@ -93,11 +93,18 @@ class MainActivity : AppCompatActivity() {
 
             val foldersJson = JSONArray()
             folders.forEach { folder ->
+                val count = withContext(Dispatchers.IO) {
+                    if (folder.type == com.vaults.app.db.GalleryType.FOLDER)
+                        VaultsApp.instance.db.galleryDao().countChildGalleries(folder.id)
+                    else
+                        VaultsApp.instance.db.galleryItemDao().countItems(folder.id)
+                }
                 val obj = org.json.JSONObject().apply {
                     put("id", folder.id)
                     put("name", folder.name)
                     put("type", folder.type.name)
                     put("columnCount", folder.columnCount)
+                    put("count", count)
                 }
                 foldersJson.put(obj)
             }
@@ -169,6 +176,11 @@ body {
   font-size: 10px;
   margin-top: 4px;
 }
+.folder-count {
+  color: #aaa;
+  font-size: 11px;
+  margin-top: 3px;
+}
 .delete-btn {
   display: none;
   position: absolute;
@@ -222,6 +234,7 @@ function renderFolders() {
     div.innerHTML = '<div class="folder-icon">' + icon + '</div>' +
                     '<div class="folder-name">' + folder.name + '</div>' +
                     '<div class="folder-type">' + folder.type + '</div>' +
+                    '<div class="folder-count">' + folder.count + '</div>' +
                     '<button class="delete-btn" onclick="event.stopPropagation(); deleteFolder(' + folder.id + ')">×</button>';
     grid.appendChild(div);
   });

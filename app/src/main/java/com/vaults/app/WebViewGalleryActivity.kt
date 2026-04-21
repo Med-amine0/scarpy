@@ -117,10 +117,25 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
 
             val defaultVolume = prefs.getInt("default_volume", 5)
-            val savedCols = withContext(Dispatchers.IO) {
-                VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)?.columnCount ?: 0
+            val gallery = withContext(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)
             }
-            loadThumbnailGridFast(itemsJson.toString(), defaultVolume, savedCols)
+            val savedCols = gallery?.columnCount ?: 0
+            val galleryName = gallery?.name ?: "Gallery"
+            loadThumbnailGridFast(itemsJson.toString(), defaultVolume, savedCols, galleryName, items.size)
+
+            // Preload all MD thumbnails in parallel — they're small (~100kb) so fire all at once
+            if (type == GalleryType.NORMAL) {
+                val mdItems = items.filter { it.useMd }
+                if (mdItems.isNotEmpty()) {
+                    val urlsJs = mdItems.joinToString(",") { "\"${it.value.replace(Regex("\\.jpg$", RegexOption.IGNORE_CASE), ".md.jpg")}\"" }
+                    withContext(Dispatchers.Main) {
+                        binding.webView.evaluateJavascript(
+                            "(function(){[$urlsJs].forEach(function(u){var i=new Image();i.src=u;});})();", null
+                        )
+                    }
+                }
+            }
 
             // Resolve uncached/expired items in parallel — fast, all at once
             if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
@@ -163,8 +178,9 @@ body { background: #000; display: flex; justify-content: center; align-items: ce
 </html>
     """.trimIndent()
 
-    private fun loadThumbnailGridFast(itemsJson: String, defaultVolume: Int, savedCols: Int = 0) {
+    private fun loadThumbnailGridFast(itemsJson: String, defaultVolume: Int, savedCols: Int = 0, galleryName: String = "Gallery", itemCount: Int = 0) {
         val galleryType = this.galleryType.name
+        val escapedName = galleryName.replace("\"", "\\\"").replace("'", "\\'")
 
         val html = """
 <!DOCTYPE html>
@@ -309,6 +325,31 @@ body { background: #000; }
 .edit-btn-up { top: 4px; left: 4px; }
 .edit-btn-down { top: 4px; right: 4px; }
 .edit-btn-delete { bottom: 4px; right: 4px; background: rgba(244,67,54,0.8); }
+.edit-btn-md { bottom: 4px; left: 4px; font-size: 11px; background: rgba(0,120,255,0.8); }
+.thumb.is-md .edit-btn-md { background: rgba(255,105,180,0.9); }
+#swipe-expand {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: #000;
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+}
+#swipe-expand.active { display: flex; }
+#swipe-expand img {
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+}
+#swipe-expand-close {
+  position: absolute;
+  top: 16px; right: 16px;
+  width: 44px; height: 44px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 22px;
+  border: none; color: #fff; font-size: 22px;
+  cursor: pointer; z-index: 10000;
+}
 .empty-msg {
   grid-column: 1/-1;
   text-align: center;
@@ -470,7 +511,8 @@ body { background: #000; }
 <body>
 <div class="toolbar" id="toolbar">
   <button class="back-btn" onclick="Android.goBack()">←</button>
-  <span style="color:#ff69b4;font-size:18px;font-weight:bold;">Gallery</span>
+  <span style="color:#ff69b4;font-size:16px;font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;">$escapedName</span>
+  <span style="color:#888;font-size:13px;margin-left:4px;white-space:nowrap;">($itemCount)</span>
   <div class="col-controls">
     <button class="col-btn" onclick="changeColumns(-1)">−</button>
     <span class="col-count" id="colCount">3</span>
@@ -490,6 +532,12 @@ body { background: #000; }
 </div>
 <div id="copy-toast">URL copied</div>
 
+<!-- Swipe expand overlay — stays inside swipe mode -->
+<div id="swipe-expand">
+  <button id="swipe-expand-close" onclick="closeSwipeExpand()">×</button>
+  <img id="swipe-expand-img" src="" />
+</div>
+
 <!-- Tinder swipe view -->
 <div id="swipe-view">
   <div id="swipe-toolbar">
@@ -500,9 +548,10 @@ body { background: #000; }
   <div id="card-stack"></div>
   <div id="swipe-counter"></div>
   <div id="swipe-actions">
-    <button class="swipe-action-btn" id="btn-nope"  onclick="programmaticSwipe('left')">✕</button>
+    <button class="swipe-action-btn" id="btn-nope"  onclick="programmaticSwipe('left')">👎</button>
+    <button class="swipe-action-btn" id="btn-del"   onclick="deleteCurrentSwipeItem()" style="background:#1e1e1e;color:#f44336;font-size:20px;" title="Delete">✕</button>
     <button class="swipe-action-btn" id="btn-burn"  onclick="burnCurrent()" title="Never show again">🔥</button>
-    <button class="swipe-action-btn" id="btn-like"  onclick="programmaticSwipe('right')">♥</button>
+    <button class="swipe-action-btn" id="btn-like"  onclick="programmaticSwipe('right')">👍</button>
   </div>
 </div>
 <script>
@@ -541,7 +590,7 @@ function changeColumns(delta) {
 
 function buildThumbElement(item, index) {
   var thumb = document.createElement('div');
-  thumb.className = thumbClass;
+  thumb.className = thumbClass + (item.thumbUrl ? ' is-md' : '');
   thumb.setAttribute('data-id', item.id);
   thumb.setAttribute('data-index', index);
   thumb.appendChild(buildMedia(item, false));
@@ -559,10 +608,39 @@ function buildThumbElement(item, index) {
     bu.onclick = (function(id, idx) { return function(e) { e.stopPropagation(); moveItemInGrid(id, idx, -1); }; })(item.id, index);
     var bd = document.createElement('button'); bd.className = 'edit-btn edit-btn-down'; bd.innerHTML = '↓';
     bd.onclick = (function(id, idx) { return function(e) { e.stopPropagation(); moveItemInGrid(id, idx, 1); }; })(item.id, index);
-    // Delete icon now toggles selection
     var bx = document.createElement('button'); bx.className = 'edit-btn edit-btn-delete'; bx.innerHTML = '🗑️';
     bx.onclick = (function(t, id) { return function(e) { e.stopPropagation(); toggleSelect(t, id); }; })(thumb, item.id);
     ec.appendChild(bu); ec.appendChild(bd); ec.appendChild(bx);
+    // MD toggle — bottom left, only for NORMAL
+    if (galleryType === 'NORMAL') {
+      var bm = document.createElement('button');
+      bm.className = 'edit-btn edit-btn-md';
+      bm.innerHTML = item.thumbUrl ? 'MD' : 'OG';
+      bm.title = item.thumbUrl ? 'Using MD thumb — tap to switch to original' : 'Using original — tap for MD thumb';
+      bm.onclick = (function(t, i, btn) { return function(e) {
+        e.stopPropagation();
+        var nowMd = !!i.thumbUrl;
+        if (nowMd) {
+          i.thumbUrl = null;
+          t.classList.remove('is-md');
+          btn.innerHTML = 'OG';
+        } else {
+          i.thumbUrl = i.value.replace(/\.jpg$/i, '.md.jpg');
+          t.classList.add('is-md');
+          btn.innerHTML = 'MD';
+        }
+        // Swap displayed image in grid cell
+        var media = t.querySelector('img[data-src], img:not([data-src=""])');
+        if (media) {
+          media.setAttribute('data-src', i.thumbUrl || i.value);
+          media.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+          visibilityObserver.unobserve(media);
+          visibilityObserver.observe(media);
+        }
+        Android.toggleMd(i.id, !nowMd);
+      }; })(thumb, item, bm);
+      ec.appendChild(bm);
+    }
     thumb.appendChild(ec);
   }
 
@@ -1100,11 +1178,16 @@ function buildSwipeMedia(item) {
   img.src = item.value;
   img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;background:#000;';
   img.onerror = function() { this.style.opacity = '0.2'; };
-  // Tap opens full-res in overlay (same behaviour regardless of md flag)
-  img.style.cursor = 'pointer';
-  img.addEventListener('click', (function(fullUrl) {
-    return function(e) { e.stopPropagation(); openSwipeFullscreen(fullUrl); };
-  })(item.value));
+  // Double-tap opens full-res expand overlay (stays inside swipe mode)
+  var lastTapSwipe = 0;
+  img.addEventListener('touchend', function(e) {
+    var now = Date.now();
+    if (now - lastTapSwipe < 300) {
+      e.preventDefault(); e.stopPropagation();
+      openSwipeExpand(item.value);
+    }
+    lastTapSwipe = now;
+  });
   return img;
 }
 
@@ -1125,9 +1208,9 @@ function buildCardElement(orderPos, isBack) {
   } else {
     inner.appendChild(buildSwipeMedia(item));
     var like = document.createElement('div');
-    like.className = 'swipe-stamp like'; like.textContent = '♥';
+    like.className = 'swipe-stamp like'; like.textContent = '👍';
     var nope = document.createElement('div');
-    nope.className = 'swipe-stamp nope'; nope.textContent = '✕';
+    nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
     inner.appendChild(like);
     inner.appendChild(nope);
   }
@@ -1152,9 +1235,9 @@ function hydrateCard(card, orderPos) {
   inner.replaceChild(media, ph);
   // Add stamps
   var like = document.createElement('div');
-  like.className = 'swipe-stamp like'; like.textContent = '♥';
+  like.className = 'swipe-stamp like'; like.textContent = '👍';
   var nope = document.createElement('div');
-  nope.className = 'swipe-stamp nope'; nope.textContent = '✕';
+  nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
   inner.appendChild(like);
   inner.appendChild(nope);
 }
@@ -1221,9 +1304,9 @@ function advancePool(dir) {
     var inner = newTop.querySelector('.card-inner');
     if (inner && !inner.querySelector('.swipe-stamp')) {
       var like = document.createElement('div');
-      like.className = 'swipe-stamp like'; like.textContent = '♥';
+      like.className = 'swipe-stamp like'; like.textContent = '👍';
       var nope = document.createElement('div');
-      nope.className = 'swipe-stamp nope'; nope.textContent = '✕';
+      nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
       inner.appendChild(like); inner.appendChild(nope);
     }
     cardPool[1] = newTop;
@@ -1358,15 +1441,33 @@ function flyOut(dir, card) {
   }, 370);
 }
 
-function openSwipeFullscreen(url) {
-  var ov = document.createElement('div');
-  ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:9999;display:flex;align-items:center;justify-content:center;';
-  var img = document.createElement('img');
-  img.src = url;
-  img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
-  ov.appendChild(img);
-  ov.onclick = function() { ov.remove(); };
-  document.body.appendChild(ov);
+function openSwipeExpand(url) {
+  var img = document.getElementById('swipe-expand-img');
+  if (img) img.src = url;
+  document.getElementById('swipe-expand').classList.add('active');
+}
+
+function closeSwipeExpand() {
+  document.getElementById('swipe-expand').classList.remove('active');
+  var img = document.getElementById('swipe-expand-img');
+  if (img) img.src = '';
+}
+
+function deleteCurrentSwipeItem() {
+  if (swipePos >= swipeOrder.length) return;
+  var itemIdx = swipeOrder[swipePos];
+  var item = items[itemIdx];
+  if (!confirm('Delete this item?')) return;
+  Android.deleteItemSilent(item.id);
+  // Remove from items array and swipeOrder
+  swipeOrder.splice(swipePos, 1);
+  items.splice(itemIdx, 1);
+  // Fix remaining swipeOrder indices that pointed past the removed item
+  for (var i = 0; i < swipeOrder.length; i++) {
+    if (swipeOrder[i] > itemIdx) swipeOrder[i]--;
+  }
+  if (swipePos >= swipeOrder.length) swipePos = Math.max(0, swipeOrder.length - 1);
+  initCardPool();
 }
 
 function programmaticSwipe(dir) { flyOut(dir, cardPool[1]); }
@@ -1561,6 +1662,21 @@ renderGrid();
                         GalleryItem(galleryId = targetGalleryId, value = value, sortOrder = currentMax + 1)
                     )
                 }
+            }
+        }
+
+        @JavascriptInterface
+        fun deleteItemSilent(itemId: Long) {
+            // Delete from DB without reloading the gallery — swipe mode handles UI itself
+            lifecycleScope.launch(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryItemDao().deleteById(itemId)
+            }
+        }
+
+        @JavascriptInterface
+        fun toggleMd(itemId: Long, useMd: Boolean) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                VaultsApp.instance.db.galleryItemDao().updateUseMd(itemId, useMd)
             }
         }
 

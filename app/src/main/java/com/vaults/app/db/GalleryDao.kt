@@ -37,6 +37,9 @@ interface GalleryDao {
 
     @Query("UPDATE galleries SET columnCount = :columnCount WHERE id = :id")
     suspend fun updateColumnCount(id: Long, columnCount: Int)
+
+    @Query("SELECT COUNT(*) FROM galleries WHERE parentId = :parentId")
+    suspend fun countChildGalleries(parentId: Long): Int
 }
 
 @Dao
@@ -82,4 +85,11 @@ interface GalleryItemDao {
 
     @Query("UPDATE gallery_items SET sortOrder = sortOrder + :shift WHERE galleryId = :galleryId")
     suspend fun shiftAllSortOrders(galleryId: Long, shift: Int)
+
+    @Query("UPDATE gallery_items SET useMd = :useMd WHERE id = :id")
+    suspend fun updateUseMd(id: Long, useMd: Boolean)
+
+    @Query("SELECT COUNT(*) FROM gallery_items WHERE galleryId = :galleryId")
+    suspend fun countItems(galleryId: Long): Int
+}
 }
