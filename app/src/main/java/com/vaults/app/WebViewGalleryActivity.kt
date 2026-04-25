@@ -1236,40 +1236,11 @@ function hydrateCard(card, orderPos) {
   var inner = card.querySelector('.card-inner');
   if (!inner) return;
   var ph = inner.firstChild;
-
-  if (galleryType === 'PORNHUB' && item.resolvedUrl) {
-    // Ask Kotlin to download the clip and notify us when ready
-    Android.downloadClip(item.id, item.resolvedUrl);
-    // Show a loading placeholder until the local file is ready
-    var loading = document.createElement('div');
-    loading.id = 'clip-loading-' + item.id;
-    loading.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;font-size:13px;';
-    loading.textContent = '⏳ Loading...';
-    inner.replaceChild(loading, ph);
-    var like = document.createElement('div'); like.className = 'swipe-stamp like'; like.textContent = '👍';
-    var nope = document.createElement('div'); nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
-    inner.appendChild(like); inner.appendChild(nope);
-  } else {
-    var media = buildSwipeMedia(item);
-    inner.replaceChild(media, ph);
-    var like = document.createElement('div'); like.className = 'swipe-stamp like'; like.textContent = '👍';
-    var nope = document.createElement('div'); nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
-    inner.appendChild(like); inner.appendChild(nope);
-  }
-}
-
-function onClipReady(itemId, localUrl) {
-  // Called from Kotlin when a clip download finishes
-  var loadingEl = document.getElementById('clip-loading-' + itemId);
-  if (!loadingEl) return;
-  var inner = loadingEl.parentNode;
-  var v = document.createElement('video');
-  v.src = localUrl;
-  v.autoplay = true; v.muted = swipeMuted; v.loop = true;
-  v.volume = defaultVolume / 100;
-  v.setAttribute('playsinline', '');
-  v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-  inner.replaceChild(v, loadingEl);
+  var media = buildSwipeMedia(item);
+  inner.replaceChild(media, ph);
+  var like = document.createElement('div'); like.className = 'swipe-stamp like'; like.textContent = '👍';
+  var nope = document.createElement('div'); nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
+  inner.appendChild(like); inner.appendChild(nope);
 }
 
 function updateCounter() {
@@ -1761,44 +1732,6 @@ renderGrid();
         }
 
         @JavascriptInterface
-        fun downloadClip(itemId: Long, url: String) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    val clipDir = java.io.File(cacheDir, "ph_clips/$galleryId")
-                    clipDir.mkdirs()
-                    val file = java.io.File(clipDir, "$itemId.mp4")
-                    if (file.exists()) {
-                        // Already cached — serve immediately
-                        val localUrl = "file://${file.absolutePath}"
-                        withContext(Dispatchers.Main) {
-                            binding.webView.evaluateJavascript("onClipReady($itemId, '$localUrl');", null)
-                        }
-                        return@launch
-                    }
-                    val client = okhttp3.OkHttpClient()
-                    val req = okhttp3.Request.Builder().url(url).build()
-                    client.newCall(req).execute().use { resp ->
-                        if (resp.isSuccessful) {
-                            resp.body?.byteStream()?.use { input ->
-                                file.outputStream().use { output -> input.copyTo(output) }
-                            }
-                            val localUrl = "file://${file.absolutePath}"
-                            withContext(Dispatchers.Main) {
-                                binding.webView.evaluateJavascript("onClipReady($itemId, '$localUrl');", null)
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Fall back: inject the original URL directly
-                    withContext(Dispatchers.Main) {
-                        val escaped = url.replace("'", "\\'")
-                        binding.webView.evaluateJavascript("onClipReady($itemId, '$escaped');", null)
-                    }
-                }
-            }
-        }
-
-        @JavascriptInterface
         fun deleteItemSilent(itemId: Long) {
             // Delete from DB without reloading the gallery — swipe mode handles UI itself
             lifecycleScope.launch(Dispatchers.IO) {
@@ -1931,14 +1864,6 @@ renderGrid();
 
                 loadGalleryItems()
             }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        // Delete session-downloaded clips — they're only valid for this session anyway
-        lifecycleScope.launch(Dispatchers.IO) {
-            java.io.File(cacheDir, "ph_clips/$galleryId").deleteRecursively()
         }
     }
 

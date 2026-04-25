@@ -99,24 +99,13 @@ class MainActivity : AppCompatActivity() {
                     else
                         VaultsApp.instance.db.galleryItemDao().countItems(folder.id)
                 }
-                val storageBytes = withContext(Dispatchers.IO) {
-                    val cacheDir = java.io.File(cacheDir, "ph_clips/${folder.id}")
-                    if (cacheDir.exists()) cacheDir.walkBottomUp().filter { it.isFile }.sumOf { it.length() } else 0L
-                }
-                val storageStr = when {
-                    storageBytes >= 1_073_741_824L -> String.format("%.1f GB", storageBytes / 1_073_741_824.0)
-                    storageBytes >= 1_048_576L -> String.format("%.1f MB", storageBytes / 1_048_576.0)
-                    storageBytes >= 1024L -> String.format("%.0f KB", storageBytes / 1024.0)
-                    storageBytes > 0L -> "$storageBytes B"
-                    else -> ""
-                }
                 val obj = org.json.JSONObject().apply {
                     put("id", folder.id)
                     put("name", folder.name)
                     put("type", folder.type.name)
                     put("columnCount", folder.columnCount)
                     put("count", count)
-                    put("storage", storageStr)
+                    put("storage", "")
                 }
                 foldersJson.put(obj)
             }
