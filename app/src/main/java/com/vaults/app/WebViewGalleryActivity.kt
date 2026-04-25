@@ -333,16 +333,22 @@ body { background: #000; }
   top: 0; left: 0; width: 100%; height: 100%;
   background: #000;
   z-index: 9999;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
 }
-#swipe-expand.active { display: flex; }
-#swipe-expand img {
-  max-width: 100%; max-height: 100%;
+#swipe-expand.active { display: block; }
+#swipe-expand-img {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform-origin: center center;
   object-fit: contain;
+  max-width: 100%; max-height: 100%;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 #swipe-expand-close {
-  position: absolute;
+  position: fixed;
   top: 16px; right: 16px;
   width: 44px; height: 44px;
   background: rgba(255,255,255,0.2);
@@ -1230,16 +1236,40 @@ function hydrateCard(card, orderPos) {
   var inner = card.querySelector('.card-inner');
   if (!inner) return;
   var ph = inner.firstChild;
-  // Replace placeholder with real media
-  var media = buildSwipeMedia(item);
-  inner.replaceChild(media, ph);
-  // Add stamps
-  var like = document.createElement('div');
-  like.className = 'swipe-stamp like'; like.textContent = '👍';
-  var nope = document.createElement('div');
-  nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
-  inner.appendChild(like);
-  inner.appendChild(nope);
+
+  if (galleryType === 'PORNHUB' && item.resolvedUrl) {
+    // Ask Kotlin to download the clip and notify us when ready
+    Android.downloadClip(item.id, item.resolvedUrl);
+    // Show a loading placeholder until the local file is ready
+    var loading = document.createElement('div');
+    loading.id = 'clip-loading-' + item.id;
+    loading.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;font-size:13px;';
+    loading.textContent = '⏳ Loading...';
+    inner.replaceChild(loading, ph);
+    var like = document.createElement('div'); like.className = 'swipe-stamp like'; like.textContent = '👍';
+    var nope = document.createElement('div'); nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
+    inner.appendChild(like); inner.appendChild(nope);
+  } else {
+    var media = buildSwipeMedia(item);
+    inner.replaceChild(media, ph);
+    var like = document.createElement('div'); like.className = 'swipe-stamp like'; like.textContent = '👍';
+    var nope = document.createElement('div'); nope.className = 'swipe-stamp nope'; nope.textContent = '👎';
+    inner.appendChild(like); inner.appendChild(nope);
+  }
+}
+
+function onClipReady(itemId, localUrl) {
+  // Called from Kotlin when a clip download finishes
+  var loadingEl = document.getElementById('clip-loading-' + itemId);
+  if (!loadingEl) return;
+  var inner = loadingEl.parentNode;
+  var v = document.createElement('video');
+  v.src = localUrl;
+  v.autoplay = true; v.muted = swipeMuted; v.loop = true;
+  v.volume = defaultVolume / 100;
+  v.setAttribute('playsinline', '');
+  v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+  inner.replaceChild(v, loadingEl);
 }
 
 function updateCounter() {
@@ -1442,15 +1472,80 @@ function flyOut(dir, card) {
 }
 
 function openSwipeExpand(url) {
+  var el = document.getElementById('swipe-expand');
   var img = document.getElementById('swipe-expand-img');
-  if (img) img.src = url;
-  document.getElementById('swipe-expand').classList.add('active');
+  img.src = url;
+  img.onload = function() {
+    // Center image
+    img.style.width = img.naturalWidth + 'px';
+    img.style.height = img.naturalHeight + 'px';
+    resetExpandTransform();
+  };
+  el.classList.add('active');
+  attachExpandGestures(el, img);
+}
+
+var expandScale = 1, expandX = 0, expandY = 0;
+
+function resetExpandTransform() {
+  var img = document.getElementById('swipe-expand-img');
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var fitScale = Math.min(vw / img.naturalWidth, vh / img.naturalHeight);
+  expandScale = fitScale;
+  expandX = 0; expandY = 0;
+  applyExpandTransform(img);
+}
+
+function applyExpandTransform(img) {
+  img.style.transform = 'translate(calc(-50% + ' + expandX + 'px), calc(-50% + ' + expandY + 'px)) scale(' + expandScale + ')';
+}
+
+function attachExpandGestures(el, img) {
+  var lastDist = 0, lastMidX = 0, lastMidY = 0;
+  var panStartX = 0, panStartY = 0, panStartTX = 0, panStartTY = 0;
+  var isPinching = false;
+
+  el.ontouchstart = function(e) {
+    if (e.touches.length === 2) {
+      isPinching = true;
+      var t0 = e.touches[0], t1 = e.touches[1];
+      lastDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      lastMidX = (t0.clientX + t1.clientX) / 2;
+      lastMidY = (t0.clientY + t1.clientY) / 2;
+    } else if (e.touches.length === 1 && !isPinching) {
+      panStartX = e.touches[0].clientX;
+      panStartY = e.touches[0].clientY;
+      panStartTX = expandX; panStartTY = expandY;
+    }
+  };
+
+  el.ontouchmove = function(e) {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      isPinching = true;
+      var t0 = e.touches[0], t1 = e.touches[1];
+      var dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      var scaleDelta = dist / lastDist;
+      expandScale = Math.max(0.5, Math.min(10, expandScale * scaleDelta));
+      lastDist = dist;
+      applyExpandTransform(img);
+    } else if (e.touches.length === 1 && !isPinching) {
+      expandX = panStartTX + (e.touches[0].clientX - panStartX);
+      expandY = panStartTY + (e.touches[0].clientY - panStartY);
+      applyExpandTransform(img);
+    }
+  };
+
+  el.ontouchend = function(e) {
+    if (e.touches.length < 2) isPinching = false;
+  };
 }
 
 function closeSwipeExpand() {
   document.getElementById('swipe-expand').classList.remove('active');
   var img = document.getElementById('swipe-expand-img');
-  if (img) img.src = '';
+  if (img) { img.src = ''; img.onload = null; }
+  expandScale = 1; expandX = 0; expandY = 0;
 }
 
 function deleteCurrentSwipeItem() {
@@ -1666,6 +1761,44 @@ renderGrid();
         }
 
         @JavascriptInterface
+        fun downloadClip(itemId: Long, url: String) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val clipDir = java.io.File(cacheDir, "ph_clips/$galleryId")
+                    clipDir.mkdirs()
+                    val file = java.io.File(clipDir, "$itemId.mp4")
+                    if (file.exists()) {
+                        // Already cached — serve immediately
+                        val localUrl = "file://${file.absolutePath}"
+                        withContext(Dispatchers.Main) {
+                            binding.webView.evaluateJavascript("onClipReady($itemId, '$localUrl');", null)
+                        }
+                        return@launch
+                    }
+                    val client = okhttp3.OkHttpClient()
+                    val req = okhttp3.Request.Builder().url(url).build()
+                    client.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            resp.body?.byteStream()?.use { input ->
+                                file.outputStream().use { output -> input.copyTo(output) }
+                            }
+                            val localUrl = "file://${file.absolutePath}"
+                            withContext(Dispatchers.Main) {
+                                binding.webView.evaluateJavascript("onClipReady($itemId, '$localUrl');", null)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Fall back: inject the original URL directly
+                    withContext(Dispatchers.Main) {
+                        val escaped = url.replace("'", "\\'")
+                        binding.webView.evaluateJavascript("onClipReady($itemId, '$escaped');", null)
+                    }
+                }
+            }
+        }
+
+        @JavascriptInterface
         fun deleteItemSilent(itemId: Long) {
             // Delete from DB without reloading the gallery — swipe mode handles UI itself
             lifecycleScope.launch(Dispatchers.IO) {
@@ -1798,6 +1931,14 @@ renderGrid();
 
                 loadGalleryItems()
             }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Delete session-downloaded clips — they're only valid for this session anyway
+        lifecycleScope.launch(Dispatchers.IO) {
+            java.io.File(cacheDir, "ph_clips/$galleryId").deleteRecursively()
         }
     }
 

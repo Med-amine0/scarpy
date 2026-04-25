@@ -8,6 +8,15 @@ android {
     namespace = "com.vaults.app"
     compileSdk = 35
 
+    signingConfigs {
+        create("release") {
+            storeFile = file(System.getenv("KEYSTORE_PATH") ?: "vaults-release.jks")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "vaults2024secure"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "vaults-key"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "vaults2024secure"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.vaults.app"
         minSdk = 26
@@ -17,7 +26,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

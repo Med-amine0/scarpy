@@ -32,6 +32,9 @@ interface GalleryDao {
     @Query("DELETE FROM galleries WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("DELETE FROM galleries")
+    suspend fun deleteAll()
+
     @Query("UPDATE galleries SET sortOrder = :sortOrder WHERE id = :id")
     suspend fun updateSortOrder(id: Long, sortOrder: Int)
 
@@ -73,6 +76,9 @@ interface GalleryItemDao {
 
     @Query("DELETE FROM gallery_items WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM gallery_items")
+    suspend fun deleteAll()
 
     @Query("DELETE FROM gallery_items WHERE galleryId = :galleryId")
     suspend fun deleteByGalleryId(galleryId: Long)
