@@ -759,13 +759,13 @@ var visibilityObserver = new IntersectionObserver(function(entries) {
       if (entry.isIntersecting) {
         if (el.paused) { el.play().catch(function(){}); }
       } else {
-        if (!el.paused) { el.pause(); }
+        // PH clips keep playing when scrolled past — only pause for other types
+        if (galleryType !== 'PORNHUB' && !el.paused) { el.pause(); }
       }
     } else if (entry.isIntersecting && el.getAttribute('data-src')) {
-      // Lazy-load: swap data-src → src for both iframes and images
       el.src = el.getAttribute('data-src');
       el.removeAttribute('data-src');
-      visibilityObserver.unobserve(el); // only need to fire once for images
+      visibilityObserver.unobserve(el);
     }
   });
 }, { rootMargin: '200px 0px', threshold: 0.01 });
@@ -912,18 +912,13 @@ function openFullscreen(index) {
     var lastDist = 0, isPinching = false;
     var dragStartX = 0, dragStartY = 0, dragStartPanX = 0, dragStartPanY = 0, isDragging = false;
 
-    // ── Bottom buttons ────────────────────────────────────────────────────────
+    // ── Rotate button only ────────────────────────────────────────────────────
     var btnBar = document.createElement('div');
     btnBar.style.cssText = 'position:absolute;bottom:24px;left:0;width:100%;display:flex;justify-content:center;gap:32px;z-index:1002;pointer-events:none;';
 
-    function makeCtrlBtn(label) {
-      var b = document.createElement('button');
-      b.textContent = label;
-      b.style.cssText = 'width:60px;height:60px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:28px;border-radius:30px;cursor:pointer;pointer-events:auto;';
-      return b;
-    }
-
-    var rotBtn = makeCtrlBtn('↻');
+    var rotBtn = document.createElement('button');
+    rotBtn.textContent = '↻';
+    rotBtn.style.cssText = 'width:60px;height:60px;background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:28px;border-radius:30px;cursor:pointer;pointer-events:auto;';
     rotBtn.onclick = function(e) {
       e.stopPropagation();
       rotation = (rotation + 90) % 360;
@@ -931,23 +926,14 @@ function openFullscreen(index) {
       applyTransform();
     };
 
-    var zoomInBtn = makeCtrlBtn('+');
-    zoomInBtn.onclick = function(e) {
-      e.stopPropagation();
-      scale = Math.min(5, scale * 1.5);
-      clampPan();
-      applyTransform();
-    };
-
     btnBar.appendChild(rotBtn);
-    btnBar.appendChild(zoomInBtn);
     fullscreen.appendChild(btnBar);
 
-    // ── Pan clamping ──────────────────────────────────────────────────────────
+    // ── Pan clamping — image border is the hard limit ─────────────────────────
     function getMaxPan() {
       var containerW = content.offsetWidth, containerH = content.offsetHeight;
-      var sw = media.naturalWidth || media.offsetWidth || containerW;
-      var sh = media.naturalHeight || media.offsetHeight || containerH;
+      var sw = media.naturalWidth || containerW;
+      var sh = media.naturalHeight || containerH;
       var sideways = rotation === 90 || rotation === 270;
       var fitW = sideways ? containerH : containerW;
       var fitH = sideways ? containerW : containerH;
@@ -974,7 +960,6 @@ function openFullscreen(index) {
       }
       media.style.objectFit = 'contain';
       media.style.transformOrigin = 'center center';
-      // translate THEN rotate so pan axes match screen orientation
       media.style.transform = 'translate(' + panX + 'px,' + panY + 'px) rotate(' + rotation + 'deg) scale(' + scale + ')';
     }
 
@@ -1000,7 +985,8 @@ function openFullscreen(index) {
       if (e.touches.length === 2 && isPinching) {
         var d = touchDist(e.touches);
         if (lastDist > 0) {
-          scale = Math.max(1, Math.min(5, scale * d / lastDist));
+          // Min scale = 1 (fit to screen), max = 8
+          scale = Math.max(1, Math.min(8, scale * d / lastDist));
           clampPan(); applyTransform();
         }
         lastDist = d;
@@ -1445,26 +1431,40 @@ function flyOut(dir, card) {
 function openSwipeExpand(url) {
   var el = document.getElementById('swipe-expand');
   var img = document.getElementById('swipe-expand-img');
-  img.src = url;
-  img.onload = function() {
-    // Center image
-    img.style.width = img.naturalWidth + 'px';
-    img.style.height = img.naturalHeight + 'px';
-    resetExpandTransform();
-  };
+  expandScale = 1; expandX = 0; expandY = 0;
+  img.src = '';
+  img.style.transform = '';
   el.classList.add('active');
-  attachExpandGestures(el, img);
+  img.onload = function() { resetExpandTransform(); };
+  img.src = url;
 }
 
 var expandScale = 1, expandX = 0, expandY = 0;
+var expandNatW = 0, expandNatH = 0;
 
 function resetExpandTransform() {
   var img = document.getElementById('swipe-expand-img');
-  var vw = window.innerWidth, vh = window.innerHeight;
-  var fitScale = Math.min(vw / img.naturalWidth, vh / img.naturalHeight);
+  expandNatW = img.naturalWidth || window.innerWidth;
+  expandNatH = img.naturalHeight || window.innerHeight;
+  var fitScale = Math.min(window.innerWidth / expandNatW, window.innerHeight / expandNatH);
   expandScale = fitScale;
   expandX = 0; expandY = 0;
   applyExpandTransform(img);
+}
+
+function getExpandMaxPan() {
+  var scaledW = expandNatW * expandScale;
+  var scaledH = expandNatH * expandScale;
+  return {
+    x: Math.max(0, (scaledW - window.innerWidth) / 2),
+    y: Math.max(0, (scaledH - window.innerHeight) / 2)
+  };
+}
+
+function clampExpandPan() {
+  var m = getExpandMaxPan();
+  expandX = Math.max(-m.x, Math.min(m.x, expandX));
+  expandY = Math.max(-m.y, Math.min(m.y, expandY));
 }
 
 function applyExpandTransform(img) {
@@ -1472,20 +1472,16 @@ function applyExpandTransform(img) {
 }
 
 function attachExpandGestures(el, img) {
-  var lastDist = 0, lastMidX = 0, lastMidY = 0;
+  var lastDist = 0, isPinching = false;
   var panStartX = 0, panStartY = 0, panStartTX = 0, panStartTY = 0;
-  var isPinching = false;
 
   el.ontouchstart = function(e) {
     if (e.touches.length === 2) {
       isPinching = true;
       var t0 = e.touches[0], t1 = e.touches[1];
       lastDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-      lastMidX = (t0.clientX + t1.clientX) / 2;
-      lastMidY = (t0.clientY + t1.clientY) / 2;
     } else if (e.touches.length === 1 && !isPinching) {
-      panStartX = e.touches[0].clientX;
-      panStartY = e.touches[0].clientY;
+      panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
       panStartTX = expandX; panStartTY = expandY;
     }
   };
@@ -1496,19 +1492,24 @@ function attachExpandGestures(el, img) {
       isPinching = true;
       var t0 = e.touches[0], t1 = e.touches[1];
       var dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-      var scaleDelta = dist / lastDist;
-      expandScale = Math.max(0.5, Math.min(10, expandScale * scaleDelta));
+      if (lastDist > 0) {
+        // Min = fit-to-screen scale, max = 8×
+        var minScale = Math.min(window.innerWidth / expandNatW, window.innerHeight / expandNatH);
+        expandScale = Math.max(minScale, Math.min(8, expandScale * dist / lastDist));
+        clampExpandPan();
+        applyExpandTransform(img);
+      }
       lastDist = dist;
-      applyExpandTransform(img);
     } else if (e.touches.length === 1 && !isPinching) {
       expandX = panStartTX + (e.touches[0].clientX - panStartX);
       expandY = panStartTY + (e.touches[0].clientY - panStartY);
+      clampExpandPan();
       applyExpandTransform(img);
     }
   };
 
   el.ontouchend = function(e) {
-    if (e.touches.length < 2) isPinching = false;
+    if (e.touches.length < 2) { isPinching = false; lastDist = 0; }
   };
 }
 
@@ -1558,7 +1559,6 @@ function toggleSwipeMute() {
 
 function enterSwipeMode() {
   document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
-  // Weighted shuffle on every entry so order is fresh-random each time
   swipeOrder = weightedShuffle(items.map(function(_, i) { return i; }));
   swipePos = 0;
   swipeHistory = [];
@@ -1569,6 +1569,10 @@ function enterSwipeMode() {
   sv.classList.add('active');
   var ub = document.getElementById('unmuteSwipeBtn');
   if (ub && (galleryType === 'PORNHUB' || galleryType === 'REDGIF')) ub.style.display = 'block';
+  // Wire expand gestures once
+  var expEl = document.getElementById('swipe-expand');
+  var expImg = document.getElementById('swipe-expand-img');
+  if (expEl && expImg) attachExpandGestures(expEl, expImg);
   initCardPool();
 }
 
