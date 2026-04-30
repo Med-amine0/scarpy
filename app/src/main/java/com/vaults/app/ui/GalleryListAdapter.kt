@@ -40,7 +40,7 @@ class GalleryListAdapter(
             nameText.text = gallery.name
             typeLabel.text = when (gallery.type) {
                 GalleryType.NORMAL -> "\uD83D\uDDBC️ Normal"
-                GalleryType.PORNHUB -> "\uD83D\uDE33 PornHub"
+                GalleryType.CLIPS -> "\uD83D\uDE33 Clips"
                 GalleryType.REDGIF -> "\uD83D\uDE08 RedGif"
                 GalleryType.FOLDER -> "\uD83D\uDCC1 Folder"
             }

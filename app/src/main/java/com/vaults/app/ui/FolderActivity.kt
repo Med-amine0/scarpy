@@ -147,7 +147,7 @@ var galleries = $galJson;
 var editMode = false;
 
 function icon(type) {
-  if (type === 'PORNHUB') return '🎬';
+  if (type === 'CLIPS') return '🎬';
   if (type === 'REDGIF') return '🔥';
   return '🖼️';
 }
@@ -202,13 +202,13 @@ render();
     }
 
     private fun showAddDialog() {
-        val types = arrayOf("Normal (Images/Video)", "PornHub GIFs", "RedGif")
+        val types = arrayOf("Normal (Images/Video)", "Clips", "RedGif")
         MaterialAlertDialogBuilder(this)
             .setTitle("Gallery type")
             .setItems(types) { _, which ->
                 val type = when (which) {
                     0 -> GalleryType.NORMAL
-                    1 -> GalleryType.PORNHUB
+                    1 -> GalleryType.CLIPS
                     else -> GalleryType.REDGIF
                 }
                 showNameDialog(type)

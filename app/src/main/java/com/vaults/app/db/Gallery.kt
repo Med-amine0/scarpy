@@ -30,7 +30,7 @@ data class Gallery(
 )
 
 enum class GalleryType {
-    NORMAL, PORNHUB, REDGIF, FOLDER
+    NORMAL, CLIPS, REDGIF, FOLDER
 }
 
 enum class LoadMode {

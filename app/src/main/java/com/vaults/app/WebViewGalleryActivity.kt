@@ -138,7 +138,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
 
             // Resolve uncached/expired items in parallel — fast, all at once
-            if (type == GalleryType.PORNHUB || type == GalleryType.REDGIF) {
+            if (type == GalleryType.REDGIF) {
                 val uncached = items.filter { item ->
                     val cached = item.resolvedUrl
                     if (cached == null) return@filter true
@@ -560,7 +560,7 @@ var galleryType = '$galleryType';
 var defaultVolume = $defaultVolume;
 var isMuted = true;
 
-if (galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
+if (galleryType === 'CLIPS' || galleryType === 'REDGIF') {
   document.getElementById('unmuteBtn').style.display = 'block';
 }
 
@@ -574,12 +574,12 @@ function toggleMuteAll() {
 }
 
 var grid = document.getElementById('grid');
-var defaultCols = (galleryType === 'PORNHUB' || galleryType === 'REDGIF') ? 2 : 3;
+var defaultCols = (galleryType === 'CLIPS' || galleryType === 'REDGIF') ? 2 : 3;
 var savedCols = $savedCols;
 var currentCols = savedCols > 0 ? savedCols : defaultCols;
 grid.style.setProperty('--cols', currentCols);
 document.getElementById('colCount').textContent = currentCols;
-var thumbClass = (galleryType === 'PORNHUB') ? 'thumb landscape' : 'thumb portrait';
+var thumbClass = (galleryType === 'CLIPS') ? 'thumb landscape' : 'thumb portrait';
 
 function changeColumns(delta) {
   currentCols = Math.max(1, Math.min(6, currentCols + delta));
@@ -601,7 +601,7 @@ function buildThumbElement(item, index) {
   check.textContent = '✓';
   thumb.appendChild(check);
 
-  if (galleryType === 'NORMAL' || galleryType === 'PORNHUB' || galleryType === 'REDGIF') {
+  if (galleryType === 'NORMAL' || galleryType === 'CLIPS' || galleryType === 'REDGIF') {
     var ec = document.createElement('div');
     ec.className = 'edit-controls';
     var bu = document.createElement('button'); bu.className = 'edit-btn edit-btn-up'; bu.innerHTML = '↑';
@@ -691,34 +691,6 @@ function buildMedia(item, isFullscreen) {
     return w;
   }
 
-  if (type === 'PORNHUB') {
-    if (item.resolvedUrl) {
-      var v = document.createElement('video');
-      v.src = item.resolvedUrl;
-      v.muted = true; v.loop = true; v.autoplay = false;
-      v.volume = defaultVolume / 100;
-      v.setAttribute('playsinline', '');
-      v.setAttribute('preload', 'metadata');
-      v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-      if (!isFullscreen) {
-        var pressTimer = null;
-        v.addEventListener('touchstart', function(e) {
-          pressTimer = setTimeout(function() {
-            var id = item.value.replace(/[^a-zA-Z0-9]/g, '');
-            Android.openInAppUrl('https://www.pornhub.com/gif/' + id, false);
-          }, 600);
-        });
-        v.addEventListener('touchend', function() { clearTimeout(pressTimer); });
-        v.addEventListener('touchmove', function() { clearTimeout(pressTimer); });
-      }
-      return v;
-    }
-    var p = document.createElement('div');
-    p.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:11px;';
-    p.textContent = 'Loading...';
-    return p;
-  }
-
   if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     var v = document.createElement('video');
     v.src = value; v.muted = true; v.loop = true; v.autoplay = false;
@@ -745,16 +717,13 @@ function buildMedia(item, isFullscreen) {
   return img;
 }
 
-// IntersectionObserver: play videos and load iframes/images only when visible
+// IntersectionObserver: load iframes/images only when visible (videos always play, no pause)
 var visibilityObserver = new IntersectionObserver(function(entries) {
   entries.forEach(function(entry) {
     var el = entry.target;
     if (el.tagName === 'VIDEO') {
-      if (entry.isIntersecting) {
-        if (el.paused) { el.play().catch(function(){}); }
-      } else {
-        if (!el.paused) { el.pause(); }
-      }
+      // Videos always play - never pause on scroll out
+      if (entry.isIntersecting && el.paused) { el.play().catch(function(){}); }
     } else if (entry.isIntersecting && el.getAttribute('data-src')) {
       // Lazy-load: swap data-src → src for both iframes and images
       el.src = el.getAttribute('data-src');
@@ -763,6 +732,16 @@ var visibilityObserver = new IntersectionObserver(function(entries) {
     }
   });
 }, { rootMargin: '200px 0px', threshold: 0.01 });
+
+// Pagination: load 5 items at a time
+var displayedCount = 5;
+var pageSize = 5;
+
+function loadMoreItems() {
+  if (displayedCount >= items.length) return;
+  displayedCount += pageSize;
+  renderGrid();
+}
 
 function observeMedia(container) {
   container.querySelectorAll('video').forEach(function(v) { visibilityObserver.observe(v); });
@@ -797,11 +776,26 @@ function renderGrid() {
     grid.innerHTML = '<div class="empty-msg">No items yet. Tap + to add URLs.</div>';
     return;
   }
-  items.forEach(function(item, index) {
+  // Only render up to displayedCount items (pagination)
+  var toShow = items.slice(0, displayedCount);
+  toShow.forEach(function(item, index) {
     var thumb = buildThumbElement(item, index);
     grid.appendChild(thumb);
     observeMedia(thumb);
   });
+  
+  // Add scroll listener for infinite scroll (only once)
+  if (!window.scrollListenerAdded) {
+    window.scrollListenerAdded = true;
+    window.addEventListener('scroll', function() {
+      var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      var scrollHeight = document.documentElement.scrollHeight;
+      var clientHeight = window.innerHeight;
+      if (scrollTop + clientHeight >= scrollHeight - 200) {
+        loadMoreItems();
+      }
+    });
+  }
 }
 
 function openFullscreen(index) {
@@ -883,10 +877,9 @@ function openFullscreen(index) {
     return;
   }
 
-  // ── PORNHUB ────────────────────────────────────────────────────────────────
-  if (type === 'PORNHUB' && item.resolvedUrl) {
-    Android.openInAppUrl(item.resolvedUrl, true);
-    return;
+  // ── CLIPS ─────────────────────────────────────────────────────────────────
+  if (type === 'CLIPS') {
+    // CLIPS uses inline HTML5 player - handled below like NORMAL video
   }
 
   // ── NORMAL image / video ───────────────────────────────────────────────────
@@ -899,6 +892,27 @@ function openFullscreen(index) {
     media.autoplay = true;
     media.play().catch(function(){});
     observeMedia(content);
+    
+    // Add random button for CLIPS videos
+    if (type === 'CLIPS') {
+      var randomBtn = document.createElement('button');
+      randomBtn.textContent = '🎲';
+      randomBtn.style.cssText = 'position:absolute;top:16px;left:16px;width:48px;height:48px;background:rgba(255,255,255,0.2);border-radius:24px;border:none;color:#fff;font-size:24px;cursor:pointer;z-index:1001;';
+      randomBtn.onclick = function(e) {
+        e.stopPropagation();
+        // Pick random clip different from current
+        var currentIdx = items.findIndex(function(i) { return i.id === item.id; });
+        var availableIndices = items.map(function(_, i) { return i; }).filter(function(i) { return i !== currentIdx; });
+        if (availableIndices.length === 0) return;
+        var randomPick = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+        var randomItem = items[randomPick];
+        // Replace video source with random clip
+        var videoUrl = randomItem.value;
+        media.src = videoUrl;
+        media.play().catch(function(){});
+      };
+      fullscreen.appendChild(randomBtn);
+    }
   }
 
   if (media.tagName === 'IMG') {
@@ -1150,21 +1164,6 @@ function buildSwipeMedia(item) {
     f.setAttribute('allowfullscreen', '');
     return f;
   }
-  if (type === 'PORNHUB') {
-    if (item.resolvedUrl) {
-      var v = document.createElement('video');
-      v.src = item.resolvedUrl;
-      v.autoplay = true; v.muted = swipeMuted; v.loop = true;
-      v.volume = defaultVolume / 100;
-      v.setAttribute('playsinline', '');
-      v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-      return v;
-    }
-    var p = document.createElement('div');
-    p.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#555;font-size:14px;';
-    p.textContent = 'Loading...';
-    return p;
-  }
   var src = item.resolvedUrl || item.value;
   if (src && src.match(/\.(mp4|webm)(\?|$)/i)) {
     var v = document.createElement('video');
@@ -1194,7 +1193,7 @@ function buildSwipeMedia(item) {
 function buildCardElement(orderPos, isBack) {
   if (orderPos < 0 || orderPos >= swipeOrder.length) return null;
   var item = items[swipeOrder[orderPos]];
-  var isLandscape = (galleryType === 'PORNHUB');
+  var isLandscape = (galleryType === 'CLIPS');
   var card = document.createElement('div');
   card.className = (isBack ? 'swipe-card-back' : 'swipe-card') + (isLandscape ? ' landscape' : '');
   card.setAttribute('data-order-pos', orderPos);
@@ -1502,7 +1501,7 @@ function enterSwipeMode() {
   var sv = document.getElementById('swipe-view');
   sv.classList.add('active');
   var ub = document.getElementById('unmuteSwipeBtn');
-  if (ub && (galleryType === 'PORNHUB' || galleryType === 'REDGIF')) ub.style.display = 'block';
+  if (ub && (galleryType === 'CLIPS' || galleryType === 'REDGIF')) ub.style.display = 'block';
   initCardPool();
 }
 
@@ -1616,7 +1615,7 @@ renderGrid();
         }
 
         @JavascriptInterface
-        fun getPornhubGalleries(): String {
+        fun getClipsGalleries(): String {
             val galleries = runBlocking {
                 withContext(Dispatchers.IO) {
                     val allGalleries = mutableListOf<com.vaults.app.db.Gallery>()
@@ -1629,7 +1628,7 @@ renderGrid();
                         else
                             VaultsApp.instance.db.galleryDao().getChildGalleriesOnce(parentId)
                         children.forEach { g ->
-                            if (g.type == com.vaults.app.db.GalleryType.PORNHUB) allGalleries.add(g)
+                            if (g.type == com.vaults.app.db.GalleryType.CLIPS) allGalleries.add(g)
                             if (g.type == com.vaults.app.db.GalleryType.FOLDER) toVisit.add(g.id)
                         }
                     }

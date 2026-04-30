@@ -228,7 +228,7 @@ function renderFolders() {
     div.addEventListener('touchmove', function() { clearTimeout(pressTimer); });
 
     var icon = folder.type === 'FOLDER' ? '📁' :
-               folder.type === 'PORNHUB' ? '🎬' :
+               folder.type === 'CLIPS' ? '🎬' :
                folder.type === 'REDGIF' ? '🔥' : '🖼️';
 
     div.innerHTML = '<div class="folder-icon">' + icon + '</div>' +
@@ -264,7 +264,7 @@ renderFolders();
     private fun showCreateGalleryDialog() {
         val types = arrayOf(
             getString(R.string.type_normal),
-            getString(R.string.type_pornhub),
+            getString(R.string.type_clips),
             getString(R.string.type_redgif),
             getString(R.string.type_folder)
         )
@@ -274,7 +274,7 @@ renderFolders();
             .setItems(types) { _, which ->
                 val type = when (which) {
                     0 -> GalleryType.NORMAL
-                    1 -> GalleryType.PORNHUB
+                    1 -> GalleryType.CLIPS
                     2 -> GalleryType.REDGIF
                     3 -> GalleryType.FOLDER
                     else -> GalleryType.NORMAL

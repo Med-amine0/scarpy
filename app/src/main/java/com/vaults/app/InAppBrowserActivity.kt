@@ -82,7 +82,7 @@ class InAppBrowserActivity : AppCompatActivity() {
     private fun injectAddButton() {
         val galleries = runBlocking {
             withContext(Dispatchers.IO) {
-                // Collect ALL galleries (root + nested) that are PORNHUB type
+                // Collect ALL galleries (root + nested) that are CLIPS type
                 val allGalleries = mutableListOf<com.vaults.app.db.Gallery>()
                 val toVisit = ArrayDeque<Long?>()
                 toVisit.add(null) // start from root
@@ -93,7 +93,7 @@ class InAppBrowserActivity : AppCompatActivity() {
                     else
                         VaultsApp.instance.db.galleryDao().getChildGalleriesOnce(parentId)
                     children.forEach { g ->
-                        if (g.type == GalleryType.PORNHUB) allGalleries.add(g)
+                        if (g.type == GalleryType.CLIPS) allGalleries.add(g)
                         if (g.type == com.vaults.app.db.GalleryType.FOLDER) toVisit.add(g.id)
                     }
                 }
