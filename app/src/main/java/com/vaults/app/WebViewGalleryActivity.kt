@@ -693,22 +693,31 @@ function buildMedia(item, isFullscreen) {
 
   if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     var v = document.createElement('video');
-    // Grid view: use data-src for lazy loading (20 at a time)
-    // Fullscreen: use src directly for immediate playback
+    // Fullscreen: use src directly for immediate playback with native controls
     if (isFullscreen) {
       v.src = value;
       v.controls = true;
       v.setAttribute('playsinline', '');
       v.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
-    } else {
+      return v;
+    }
+    // Grid view: only CLIPS uses lazy loading (data-src), others load immediately
+    if (type === 'CLIPS') {
       v.setAttribute('data-src', value);
       v.muted = true;
       v.loop = true;
       v.autoplay = false;
       v.setAttribute('playsinline', '');
       v.setAttribute('preload', 'none');
-      v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    } else {
+      v.src = value;
+      v.muted = true;
+      v.loop = true;
+      v.autoplay = false;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('preload', 'metadata');
     }
+    v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
 
@@ -729,15 +738,24 @@ function buildMedia(item, isFullscreen) {
   return img;
 }
 
-// IntersectionObserver: lazy load videos (20 at a time), images load immediately
+// IntersectionObserver: lazy load CLIPS videos only, autoplay other videos
 var visibilityObserver = new IntersectionObserver(function(entries) {
   entries.forEach(function(entry) {
     var el = entry.target;
     if (el.tagName === 'VIDEO') {
-      // Lazy load video when in view (not autoplay)
-      if (entry.isIntersecting && el.getAttribute('data-src')) {
-        el.src = el.getAttribute('data-src');
-        el.removeAttribute('data-src');
+      // CLIPS videos: lazy load when in view (has data-src attribute)
+      if (el.getAttribute('data-src')) {
+        if (entry.isIntersecting) {
+          el.src = el.getAttribute('data-src');
+          el.removeAttribute('data-src');
+        }
+      } else {
+        // Other videos (NORMAL): autoplay when visible, pause when out of view
+        if (entry.isIntersecting) {
+          if (el.paused) { el.play().catch(function(){}); }
+        } else {
+          if (!el.paused) { el.pause(); }
+        }
       }
     } else if (entry.isIntersecting && el.getAttribute('data-src')) {
       // Lazy-load: swap data-src → src for iframes and images
@@ -748,45 +766,7 @@ var visibilityObserver = new IntersectionObserver(function(entries) {
   });
 }, { rootMargin: '200px 0px', threshold: 0.01 });
 
-// Lazy load videos 20 at a time when scrolled into view
-var videoLoadCount = 0;
-var videosPerLoad = 20;
-var pendingVideos = [];
-
-function queueVideoForLazyLoad(videoEl) {
-  pendingVideos.push(videoEl);
-  if (pendingVideos.length <= videosPerLoad) {
-    videoEl.src = videoEl.getAttribute('data-src');
-    videoEl.removeAttribute('data-src');
-  }
-}
-
-function loadMoreVideos() {
-  var toLoad = pendingVideos.slice(videoLoadCount, videoLoadCount + videosPerLoad);
-  toLoad.forEach(function(v) {
-    v.src = v.getAttribute('data-src') || v.src;
-    v.removeAttribute('data-src');
-  });
-  videoLoadCount += toLoad.length;
-  
-  // Set up scroll listener for more video loading
-  if (!window.videoScrollAdded) {
-    window.videoScrollAdded = true;
-    window.addEventListener('scroll', function() {
-      var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-      var scrollHeight = document.documentElement.scrollHeight;
-      var clientHeight = window.innerHeight;
-      if (scrollTop + clientHeight >= scrollHeight - 400) {
-        loadMoreVideos();
-      }
-    });
-  }
-}
-
 function observeMedia(container) {
-  container.querySelectorAll('video').forEach(function(v) { visibilityObserver.observe(v); });
-  container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
-}
   container.querySelectorAll('video').forEach(function(v) { visibilityObserver.observe(v); });
   container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
 }
@@ -825,11 +805,6 @@ function renderGrid() {
     grid.appendChild(thumb);
     observeMedia(thumb);
   });
-  
-  // Set up lazy video loading after rendering
-  setTimeout(function() {
-    loadMoreVideos();
-  }, 100);
 }
 
 function openFullscreen(index) {
