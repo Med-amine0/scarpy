@@ -693,10 +693,22 @@ function buildMedia(item, isFullscreen) {
 
   if (value.match(/\.(mp4|webm)(\?|$)/i)) {
     var v = document.createElement('video');
-    v.src = value; v.muted = true; v.loop = true; v.autoplay = false;
-    v.setAttribute('playsinline', '');
-    v.setAttribute('preload', 'metadata');
-    v.style.cssText = isFullscreen ? 'width:100%;height:auto;object-fit:contain;display:block;' : 'width:100%;height:100%;object-fit:cover;';
+    // Grid view: use data-src for lazy loading (20 at a time)
+    // Fullscreen: use src directly for immediate playback
+    if (isFullscreen) {
+      v.src = value;
+      v.controls = true;
+      v.setAttribute('playsinline', '');
+      v.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
+    } else {
+      v.setAttribute('data-src', value);
+      v.muted = true;
+      v.loop = true;
+      v.autoplay = false;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('preload', 'none');
+      v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    }
     return v;
   }
 
@@ -717,15 +729,18 @@ function buildMedia(item, isFullscreen) {
   return img;
 }
 
-// IntersectionObserver: load iframes/images only when visible (videos always play, no pause)
+// IntersectionObserver: lazy load videos (20 at a time), images load immediately
 var visibilityObserver = new IntersectionObserver(function(entries) {
   entries.forEach(function(entry) {
     var el = entry.target;
     if (el.tagName === 'VIDEO') {
-      // Videos always play - never pause on scroll out
-      if (entry.isIntersecting && el.paused) { el.play().catch(function(){}); }
+      // Lazy load video when in view (not autoplay)
+      if (entry.isIntersecting && el.getAttribute('data-src')) {
+        el.src = el.getAttribute('data-src');
+        el.removeAttribute('data-src');
+      }
     } else if (entry.isIntersecting && el.getAttribute('data-src')) {
-      // Lazy-load: swap data-src → src for both iframes and images
+      // Lazy-load: swap data-src → src for iframes and images
       el.src = el.getAttribute('data-src');
       el.removeAttribute('data-src');
       visibilityObserver.unobserve(el); // only need to fire once for images
@@ -733,17 +748,45 @@ var visibilityObserver = new IntersectionObserver(function(entries) {
   });
 }, { rootMargin: '200px 0px', threshold: 0.01 });
 
-// Pagination: load 5 items at a time
-var displayedCount = 5;
-var pageSize = 5;
+// Lazy load videos 20 at a time when scrolled into view
+var videoLoadCount = 0;
+var videosPerLoad = 20;
+var pendingVideos = [];
 
-function loadMoreItems() {
-  if (displayedCount >= items.length) return;
-  displayedCount += pageSize;
-  renderGrid();
+function queueVideoForLazyLoad(videoEl) {
+  pendingVideos.push(videoEl);
+  if (pendingVideos.length <= videosPerLoad) {
+    videoEl.src = videoEl.getAttribute('data-src');
+    videoEl.removeAttribute('data-src');
+  }
+}
+
+function loadMoreVideos() {
+  var toLoad = pendingVideos.slice(videoLoadCount, videoLoadCount + videosPerLoad);
+  toLoad.forEach(function(v) {
+    v.src = v.getAttribute('data-src') || v.src;
+    v.removeAttribute('data-src');
+  });
+  videoLoadCount += toLoad.length;
+  
+  // Set up scroll listener for more video loading
+  if (!window.videoScrollAdded) {
+    window.videoScrollAdded = true;
+    window.addEventListener('scroll', function() {
+      var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      var scrollHeight = document.documentElement.scrollHeight;
+      var clientHeight = window.innerHeight;
+      if (scrollTop + clientHeight >= scrollHeight - 400) {
+        loadMoreVideos();
+      }
+    });
+  }
 }
 
 function observeMedia(container) {
+  container.querySelectorAll('video').forEach(function(v) { visibilityObserver.observe(v); });
+  container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
+}
   container.querySelectorAll('video').forEach(function(v) { visibilityObserver.observe(v); });
   container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
 }
@@ -776,26 +819,17 @@ function renderGrid() {
     grid.innerHTML = '<div class="empty-msg">No items yet. Tap + to add URLs.</div>';
     return;
   }
-  // Only render up to displayedCount items (pagination)
-  var toShow = items.slice(0, displayedCount);
-  toShow.forEach(function(item, index) {
+  // Render ALL thumbnails at once
+  items.forEach(function(item, index) {
     var thumb = buildThumbElement(item, index);
     grid.appendChild(thumb);
     observeMedia(thumb);
   });
   
-  // Add scroll listener for infinite scroll (only once)
-  if (!window.scrollListenerAdded) {
-    window.scrollListenerAdded = true;
-    window.addEventListener('scroll', function() {
-      var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-      var scrollHeight = document.documentElement.scrollHeight;
-      var clientHeight = window.innerHeight;
-      if (scrollTop + clientHeight >= scrollHeight - 200) {
-        loadMoreItems();
-      }
-    });
-  }
+  // Set up lazy video loading after rendering
+  setTimeout(function() {
+    loadMoreVideos();
+  }, 100);
 }
 
 function openFullscreen(index) {
@@ -1704,6 +1738,16 @@ renderGrid();
             intent.putExtra("url", url)
             intent.putExtra("landscape", landscape)
             context.startActivity(intent)
+        }
+
+        @JavascriptInterface
+        fun requestLandscape() {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+
+        @JavascriptInterface
+        fun resetOrientation() {
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
 
         @JavascriptInterface
