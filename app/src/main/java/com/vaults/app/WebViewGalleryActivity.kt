@@ -849,48 +849,12 @@ function buildMedia(item, isFullscreen) {
   return img;
 }
 
-// IntersectionObserver: lazy load/unload CLIPS videos, autoplay other videos
+// IntersectionObserver: lazy load images/iframes only (no video handling)
 var visibilityObserver = new IntersectionObserver(function(entries) {
   entries.forEach(function(entry) {
     var el = entry.target;
-    if (el.tagName === 'VIDEO') {
-      // CLIPS videos: load when in view, unload when out of view (for memory)
-      if (el.getAttribute('data-src')) {
-        if (entry.isIntersecting) {
-          el.src = el.getAttribute('data-src');
-          el.removeAttribute('data-src');
-        }
-      } else if (galleryType === 'CLIPS') {
-        // CLIPS: truly unload when far out of view (free RAM)
-        if (!entry.isIntersecting && el.src && el.getAttribute('data-unloaded') !== 'true') {
-          var rect = el.getBoundingClientRect();
-          var viewportHeight = window.innerHeight;
-          // Unload if more than 2 viewport heights away
-          if (rect.top < -viewportHeight * 2 || rect.bottom > viewportHeight * 3) {
-            el.setAttribute('data-unloaded', 'true');
-            el.src = '';
-            el.load();
-          }
-        } else if (entry.isIntersecting && el.getAttribute('data-unloaded') === 'true') {
-          // Reload when coming back into view
-          var parent = el.closest('.thumb');
-          if (parent) {
-            var idx = parseInt(parent.getAttribute('data-index'));
-            if (items[idx]) {
-              el.src = items[idx].value;
-              el.removeAttribute('data-unloaded');
-            }
-          }
-        }
-      } else {
-        // Other videos (NORMAL): autoplay when visible, pause when out of view
-        if (entry.isIntersecting) {
-          if (el.paused) { el.play().catch(function(){}); }
-        } else {
-          if (!el.paused) { el.pause(); }
-        }
-      }
-    } else if (entry.isIntersecting && el.getAttribute('data-src')) {
+    // Only handle images and iframes - videos load and play continuously
+    if (el.tagName !== 'VIDEO' && entry.isIntersecting && el.getAttribute('data-src')) {
       // Lazy-load: swap data-src → src for iframes and images
       el.src = el.getAttribute('data-src');
       el.removeAttribute('data-src');
@@ -900,7 +864,6 @@ var visibilityObserver = new IntersectionObserver(function(entries) {
 }, { rootMargin: '200px 0px', threshold: 0.01 });
 
 function observeMedia(container) {
-  container.querySelectorAll('video').forEach(function(v) { visibilityObserver.observe(v); });
   container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
 }
 
