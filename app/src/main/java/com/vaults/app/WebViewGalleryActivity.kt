@@ -896,12 +896,67 @@ function renderGrid() {
     return;
   }
   
-  // Render ALL thumbnails at once for all gallery types
-  items.forEach(function(item, index) {
-    var thumb = buildThumbElement(item, index);
-    grid.appendChild(thumb);
-    observeMedia(thumb);
-  });
+  // CLIPS: lazy load videos (only visible + buffer)
+  if (galleryType === 'CLIPS') {
+    renderClipsLazy();
+  } else {
+    // Other types: render all at once
+    items.forEach(function(item, index) {
+      var thumb = buildThumbElement(item, index);
+      grid.appendChild(thumb);
+      observeMedia(thumb);
+    });
+  }
+}
+
+// Lazy loading for CLIPS: only load visible + buffer videos
+var clipsLoadedCount = 0;
+var clipsBufferSize = 20;
+
+function renderClipsLazy() {
+  clipsLoadedCount = 0;
+  // Create placeholder divs for ALL items first (maintains grid layout)
+  for (var i = 0; i < items.length; i++) {
+    var placeholder = document.createElement('div');
+    placeholder.className = 'thumb landscape';
+    placeholder.setAttribute('data-index', i);
+    placeholder.style.background = '#1a1a1a';
+    placeholder.style.borderRadius = '12px';
+    grid.appendChild(placeholder);
+  }
+  
+  // Load first batch
+  loadClipsBatch(0, clipsBufferSize);
+  
+  // Set up scroll listener for lazy loading
+  if (!window.clipsLazyScrollHandler) {
+    window.clipsLazyScrollHandler = true;
+    window.addEventListener('scroll', function() {
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      var viewportHeight = window.innerHeight;
+      var scrollBottom = scrollY + viewportHeight;
+      var totalHeight = document.documentElement.scrollHeight;
+      
+      // Load more when getting near bottom
+      if (scrollBottom > totalHeight - viewportHeight * 2) {
+        loadClipsBatch(clipsLoadedCount, clipsBufferSize);
+      }
+    });
+  }
+}
+
+function loadClipsBatch(startIndex, count) {
+  var endIndex = Math.min(startIndex + count, items.length);
+  for (var i = startIndex; i < endIndex; i++) {
+    if (i >= clipsLoadedCount) {
+      var placeholder = grid.querySelector('[data-index="' + i + '"]');
+      if (placeholder && items[i]) {
+        var thumb = buildThumbElement(items[i], i);
+        placeholder.replaceWith(thumb);
+        clipsLoadedCount = Math.max(clipsLoadedCount, i + 1);
+      }
+    }
+  }
 }
 
 function openFullscreen(index) {
