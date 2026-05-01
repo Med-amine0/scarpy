@@ -821,13 +821,13 @@ function buildMedia(item, isFullscreen) {
       v.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
       return v;
     }
-    // Grid view: load thumbnails immediately for all gallery types
+    // Grid view: load thumbnails immediately like Tinder swipe cards
     v.src = value;
+    v.autoplay = true;
     v.muted = true;
     v.loop = true;
-    v.autoplay = false;
     v.setAttribute('playsinline', '');
-    v.setAttribute('preload', 'none');
+    v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
