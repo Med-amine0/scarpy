@@ -1811,7 +1811,6 @@ function exitSwipeMode() {
       visibilityObserver.unobserve(el); visibilityObserver.observe(el);});
   }
 }
-}
 
 // inject resolved URL into swipe card if it's the active one
 function injectSwipeResolved(itemId, url) {
