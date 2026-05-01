@@ -821,22 +821,13 @@ function buildMedia(item, isFullscreen) {
       v.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
       return v;
     }
-    // Grid view: only CLIPS uses lazy loading (data-src), others load immediately
-    if (type === 'CLIPS') {
-      v.setAttribute('data-src', value);
-      v.muted = true;
-      v.loop = true;
-      v.autoplay = false;
-      v.setAttribute('playsinline', '');
-      v.setAttribute('preload', 'none');
-    } else {
-      v.src = value;
-      v.muted = true;
-      v.loop = true;
-      v.autoplay = false;
-      v.setAttribute('playsinline', '');
-      v.setAttribute('preload', 'metadata');
-    }
+    // Grid view: load thumbnails immediately for all gallery types
+    v.src = value;
+    v.muted = true;
+    v.loop = true;
+    v.autoplay = false;
+    v.setAttribute('playsinline', '');
+    v.setAttribute('preload', 'none');
     v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
