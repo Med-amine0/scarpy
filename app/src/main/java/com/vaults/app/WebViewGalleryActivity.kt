@@ -494,6 +494,71 @@ body { background: #000; }
 .swipe-card-back .card-inner { aspect-ratio: 3/4; }
 .swipe-card-back.landscape .card-inner { aspect-ratio: 16/9; }
 
+/* ── Flip Swipe View (Toggle Rotation) ─────────────────────────────────────── */
+#swipe-view.flipped {
+  flex-direction: row;
+  padding: 12px;
+  padding-left: calc(12px + env(safe-area-inset-left));
+  padding-right: calc(12px + env(safe-area-inset-right));
+}
+#swipe-view.flipped #swipe-toolbar {
+  flex-direction: column;
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: 56px;
+  right: auto;
+  padding: 12px 8px;
+  justify-content: flex-start;
+  gap: 12px;
+  border-right: 1px solid #333;
+}
+#swipe-view.flipped #swipe-toolbar .back-btn {
+  transform: rotate(-90deg);
+  margin: 0;
+}
+#swipe-view.flipped #swipe-toolbar #flipSwipeBtn {
+  transform: rotate(-90deg);
+}
+#swipe-view.flipped #swipe-toolbar #unmuteSwipeBtn,
+#swipe-view.flipped #swipe-toolbar #individualMuteBtn {
+  transform: rotate(-90deg);
+}
+#swipe-view.flipped #card-stack {
+  margin: 0 56px;
+}
+#swipe-view.flipped .swipe-card {
+  width: 100%;
+  max-width: calc(100vw - 112px);
+  max-height: 100vh;
+  border-radius: 12px;
+}
+#swipe-view.flipped .swipe-card-back {
+  width: 100%;
+  max-width: calc(100vw - 112px);
+}
+#swipe-view.flipped #swipe-actions {
+  flex-direction: column;
+  left: auto; right: 0; top: 0; bottom: 0;
+  width: 56px;
+  justify-content: center;
+  gap: 20px;
+  padding: 12px 8px;
+  background: #1e1e1e;
+  border-left: 1px solid #333;
+}
+#swipe-view.flipped .swipe-action-btn {
+  width: 40px; height: 40px;
+  font-size: 18px;
+}
+#swipe-view.flipped #swipe-counter {
+  position: fixed;
+  bottom: 12px; left: 56px; right: 56px;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  width: max-content;
+  margin: 0 auto;
+}
+
 /* ── CLIPS Sideways Swipe Mode ─────────────────────────────────────────── */
 #swipe-view.clips-landscape {
   flex-direction: row;
@@ -604,8 +669,10 @@ body { background: #000; }
 <div id="swipe-view">
   <div id="swipe-toolbar">
     <button class="back-btn" onclick="exitSwipeMode()">←</button>
+    <button id="flipSwipeBtn" onclick="toggleSwipeFlip()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;" title="Flip">🔄</button>
     <span style="color:#ff69b4;font-size:18px;font-weight:bold;flex:1;">Swipe</span>
-    <button id="unmuteSwipeBtn" onclick="toggleSwipeMute()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">🔇</button>
+    <button id="individualMuteBtn" onclick="toggleIndividualMute()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;" title="Individual Mute">🔇</button>
+    <button id="unmuteSwipeBtn" onclick="toggleSwipeMute()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">🌐</button>
   </div>
   <div id="card-stack"></div>
   <div id="swipe-counter"></div>
@@ -1476,6 +1543,10 @@ function advancePool(dir) {
     }
     cardPool[1] = newTop;
     cardPoolIdx[1] = swipePos;
+    // Apply individual mute to new top card for CLIPS
+    if (galleryType === 'CLIPS') {
+      setTimeout(function() { applyIndividualMuteToCurrentCard(); }, 50);
+    }
     setTimeout(function() {
       if (newTop.style) newTop.style.transition = '';
       attachDrag(newTop);
@@ -1655,8 +1726,56 @@ function toggleSwipeMute() {
   if (btn) btn.textContent = swipeMuted ? '🔇' : '🔊';
 }
 
+function toggleSwipeFlip() {
+  var sv = document.getElementById('swipe-view');
+  sv.classList.toggle('flipped');
+  sv.classList.toggle('clips-landscape');
+}
+
+var individualMuteEnabled = false;
+
+function toggleIndividualMute() {
+  individualMuteEnabled = !individualMuteEnabled;
+  var btn = document.getElementById('individualMuteBtn');
+  if (btn) btn.textContent = individualMuteEnabled ? '🔊' : '🔇';
+  
+  // Apply to current visible card immediately
+  applyIndividualMuteToCurrentCard();
+}
+
+function applyIndividualMuteToCurrentCard() {
+  // Apply to the top card in the stack (cardPool[1])
+  var topCard = cardPool[1];
+  if (topCard) {
+    var video = topCard.querySelector('video');
+    if (video) {
+      video.muted = !individualMuteEnabled;
+      if (!individualMuteEnabled) video.volume = defaultVolume / 100;
+    }
+  }
+  // Also apply to next card if exists
+  var nextCard = cardPool[2];
+  if (nextCard) {
+    var video = nextCard.querySelector('video');
+    if (video) {
+      video.muted = !individualMuteEnabled;
+      if (!individualMuteEnabled) video.volume = defaultVolume / 100;
+    }
+  }
+}
+
 function enterSwipeMode() {
   document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
+  
+  // Unload grid for CLIPS to save RAM
+  if (galleryType === 'CLIPS') {
+    document.querySelectorAll('#grid video').forEach(function(v) {
+      v.src = '';
+      v.load();
+    });
+    document.getElementById('grid').innerHTML = '';
+  }
+  
   // Weighted shuffle on every entry so order is fresh-random each time
   swipeOrder = weightedShuffle(items.map(function(_, i) { return i; }));
   swipePos = 0;
@@ -1666,13 +1785,23 @@ function enterSwipeMode() {
   cardPoolIdx = [null, null, null];
   var sv = document.getElementById('swipe-view');
   sv.classList.add('active');
-  // Sideways layout for CLIPS
-  if (galleryType === 'CLIPS') {
-    sv.classList.add('clips-landscape');
+  sv.classList.remove('clips-landscape');
+  
+  // Show individual mute button for CLIPS
+  var imBtn = document.getElementById('individualMuteBtn');
+  if (imBtn && galleryType === 'CLIPS') {
+    imBtn.style.display = 'block';
+    imBtn.textContent = '🔇';
   }
+  
   var ub = document.getElementById('unmuteSwipeBtn');
   if (ub && (galleryType === 'CLIPS' || galleryType === 'REDGIF')) ub.style.display = 'block';
   initCardPool();
+  
+  // Apply individual mute setting to current card
+  if (galleryType === 'CLIPS' && window.individualMuteEnabled) {
+    applyIndividualMuteToCurrentCard();
+  }
 }
 
 function exitSwipeMode() {
@@ -1680,9 +1809,14 @@ function exitSwipeMode() {
   var sv = document.getElementById('swipe-view');
   sv.classList.remove('active');
   sv.classList.remove('clips-landscape');
+  sv.classList.remove('flipped');
   document.getElementById('card-stack').innerHTML = '';
   cardPool = [null, null, null];
-  if (typeof visibilityObserver !== 'undefined') {
+  
+  // Reload grid for CLIPS when exiting Tinder
+  if (galleryType === 'CLIPS') {
+    renderClipsVirtualized();
+  } else if (typeof visibilityObserver !== 'undefined') {
     document.querySelectorAll('#grid video, #grid iframe[data-src]').forEach(function(el) {
       visibilityObserver.unobserve(el); visibilityObserver.observe(el);});
   }
