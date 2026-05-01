@@ -942,77 +942,12 @@ function renderGrid() {
     return;
   }
   
-  // CLIPS: viewport-based rendering (visible + buffer)
-  // NORMAL/REDGIF: render all at once
-  if (galleryType === 'CLIPS') {
-    renderClipsVirtualized();
-  } else {
-    // Render ALL thumbnails at once for non-CLIPS
-    items.forEach(function(item, index) {
-      var thumb = buildThumbElement(item, index);
-      grid.appendChild(thumb);
-      observeMedia(thumb);
-    });
-  }
-}
-
-// Virtualized rendering for CLIPS - only render visible + buffer
-function renderClipsVirtualized() {
-  var cols = currentCols || 2;
-  var itemHeight = window.innerHeight / (cols === 1 ? 3 : (cols === 2 ? 4 : 5)); // approx item height
-  var viewportHeight = window.innerHeight;
-  var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
-  
-  // Calculate visible range
-  var visibleRowStart = Math.floor(scrollY / itemHeight);
-  var visibleRowEnd = Math.ceil((scrollY + viewportHeight) / itemHeight);
-  
-  // Buffer: 1-2 rows before and after
-  var bufferRows = 2;
-  var startRow = Math.max(0, visibleRowStart - bufferRows);
-  var endRow = visibleRowEnd + bufferRows;
-  
-  var startIndex = startRow * cols;
-  var endIndex = Math.min(endRow * cols, items.length);
-  
-  // Create placeholder to maintain grid layout
-  for (var i = 0; i < startIndex; i++) {
-    var placeholder = document.createElement('div');
-    placeholder.style.cssText = 'aspect-ratio: 16/9; background: transparent;';
-    grid.appendChild(placeholder);
-  }
-  
-  // Render visible items
-  for (var i = startIndex; i < endIndex; i++) {
-    var item = items[i];
-    var thumb = buildThumbElement(item, i);
-    thumb.setAttribute('data-virtual-index', i);
+  // Render ALL thumbnails at once for all gallery types
+  items.forEach(function(item, index) {
+    var thumb = buildThumbElement(item, index);
     grid.appendChild(thumb);
     observeMedia(thumb);
-  }
-  
-  // Create placeholder after to maintain grid layout
-  var remaining = items.length - endIndex;
-  for (var i = 0; i < remaining; i++) {
-    var placeholder = document.createElement('div');
-    placeholder.style.cssText = 'aspect-ratio: 16/9; background: transparent;';
-    grid.appendChild(placeholder);
-  }
-  
-  // Set up scroll listener for virtualization
-  if (!window.clipsScrollHandler) {
-    window.clipsScrollHandler = true;
-    window.addEventListener('scroll', function() {
-      var now = Date.now();
-      if (!window.lastClipsScroll || now - window.lastClipsScroll > 100) {
-        window.lastClipsScroll = now;
-        renderClipsVirtualized();
-      }
-    });
-    window.addEventListener('resize', function() {
-      renderClipsVirtualized();
-    });
-  }
+  });
 }
 
 function openFullscreen(index) {
@@ -1021,11 +956,6 @@ function openFullscreen(index) {
   var content = document.getElementById('fullscreenContent');
   var fullscreen = document.getElementById('fullscreen');
   content.innerHTML = '';
-
-  // Request landscape for CLIPS videos
-  if (type === 'CLIPS') {
-    Android.requestLandscape();
-  }
 
   // ── REDGIF ─────────────────────────────────────────────────────────────────
   if (type === 'REDGIF') {
@@ -1112,7 +1042,7 @@ function openFullscreen(index) {
   // If it's a video in fullscreen, autoplay immediately (intentional user action)
   if (media.tagName === 'VIDEO') {
     media.autoplay = true;
-    media.muted = false;
+    media.muted = true;
     media.play().catch(function(){});
     observeMedia(content);
     
