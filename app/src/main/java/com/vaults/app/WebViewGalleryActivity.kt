@@ -502,15 +502,13 @@ body { background: #000; }
   padding-right: calc(12px + env(safe-area-inset-right));
 }
 #swipe-view.flipped #swipe-toolbar {
-  flex-direction: column;
   position: fixed;
-  left: 0; top: 0; bottom: 0;
-  width: 56px;
-  right: auto;
+  left: 12px; top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
   padding: 12px 8px;
-  justify-content: flex-start;
-  gap: 12px;
-  border-right: 1px solid #333;
+  justify-content: center;
+  gap: 16px;
 }
 #swipe-view.flipped #swipe-toolbar .back-btn {
   transform: rotate(-90deg);
@@ -519,32 +517,30 @@ body { background: #000; }
 #swipe-view.flipped #swipe-toolbar #flipSwipeBtn {
   transform: rotate(-90deg);
 }
-#swipe-view.flipped #swipe-toolbar #unmuteSwipeBtn,
 #swipe-view.flipped #swipe-toolbar #individualMuteBtn {
   transform: rotate(-90deg);
 }
 #swipe-view.flipped #card-stack {
-  margin: 0 56px;
+  margin: 0;
 }
 #swipe-view.flipped .swipe-card {
   width: 100%;
-  max-width: calc(100vw - 112px);
+  max-width: 100vw;
   max-height: 100vh;
   border-radius: 12px;
 }
 #swipe-view.flipped .swipe-card-back {
   width: 100%;
-  max-width: calc(100vw - 112px);
+  max-width: 100vw;
 }
 #swipe-view.flipped #swipe-actions {
   flex-direction: column;
-  left: auto; right: 0; top: 0; bottom: 0;
-  width: 56px;
+  position: fixed;
+  right: 12px; top: 50%;
+  transform: translateY(-50%);
   justify-content: center;
   gap: 20px;
   padding: 12px 8px;
-  background: #1e1e1e;
-  border-left: 1px solid #333;
 }
 #swipe-view.flipped .swipe-action-btn {
   width: 40px; height: 40px;
@@ -552,8 +548,8 @@ body { background: #000; }
 }
 #swipe-view.flipped #swipe-counter {
   position: fixed;
-  bottom: 12px; left: 56px; right: 56px;
-  transform: rotate(-90deg);
+  bottom: 12px; left: 50%;
+  transform: translateX(-50%) rotate(-90deg);
   transform-origin: center;
   width: max-content;
   margin: 0 auto;
@@ -580,10 +576,6 @@ body { background: #000; }
 #swipe-view.clips-landscape #swipe-toolbar .back-btn {
   transform: rotate(-90deg);
   margin: 0;
-}
-#swipe-view.clips-landscape #swipe-toolbar #unmuteSwipeBtn {
-  transform: rotate(-90deg);
-  margin-top: auto;
 }
 #swipe-view.clips-landscape #card-stack {
   margin: 0 56px;
@@ -672,7 +664,6 @@ body { background: #000; }
     <button id="flipSwipeBtn" onclick="toggleSwipeFlip()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;" title="Flip">🔄</button>
     <span style="color:#ff69b4;font-size:18px;font-weight:bold;flex:1;">Swipe</span>
     <button id="individualMuteBtn" onclick="toggleIndividualMute()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;" title="Individual Mute">🔇</button>
-    <button id="unmuteSwipeBtn" onclick="toggleSwipeMute()" style="display:none;background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">🌐</button>
   </div>
   <div id="card-stack"></div>
   <div id="swipe-counter"></div>
@@ -1121,6 +1112,7 @@ function openFullscreen(index) {
   // If it's a video in fullscreen, autoplay immediately (intentional user action)
   if (media.tagName === 'VIDEO') {
     media.autoplay = true;
+    media.muted = false;
     media.play().catch(function(){});
     observeMedia(content);
     
@@ -1722,8 +1714,6 @@ function toggleSwipeMute() {
     v.muted = swipeMuted;
     if (!swipeMuted) v.volume = defaultVolume / 100;
   });
-  var btn = document.getElementById('unmuteSwipeBtn');
-  if (btn) btn.textContent = swipeMuted ? '🔇' : '🔊';
 }
 
 function toggleSwipeFlip() {
@@ -1786,8 +1776,6 @@ function enterSwipeMode() {
     imBtn.textContent = '🔇';
   }
   
-  var ub = document.getElementById('unmuteSwipeBtn');
-  if (ub && (galleryType === 'CLIPS' || galleryType === 'REDGIF')) ub.style.display = 'block';
   initCardPool();
   
   // Apply individual mute setting to current card
