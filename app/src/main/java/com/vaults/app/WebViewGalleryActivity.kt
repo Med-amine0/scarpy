@@ -494,6 +494,68 @@ body { background: #000; }
 .swipe-card-back .card-inner { aspect-ratio: 3/4; }
 .swipe-card-back.landscape .card-inner { aspect-ratio: 16/9; }
 
+/* ── CLIPS Sideways Swipe Mode ─────────────────────────────────────────── */
+#swipe-view.clips-landscape {
+  flex-direction: row;
+  padding: 12px;
+  padding-left: calc(12px + env(safe-area-inset-left));
+  padding-right: calc(12px + env(safe-area-inset-right));
+}
+#swipe-view.clips-landscape #swipe-toolbar {
+  flex-direction: column;
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: 56px;
+  right: auto;
+  padding: 12px 8px;
+  justify-content: flex-start;
+  gap: 16px;
+  border-right: 1px solid #333;
+}
+#swipe-view.clips-landscape #swipe-toolbar .back-btn {
+  transform: rotate(-90deg);
+  margin: 0;
+}
+#swipe-view.clips-landscape #swipe-toolbar #unmuteSwipeBtn {
+  transform: rotate(-90deg);
+  margin-top: auto;
+}
+#swipe-view.clips-landscape #card-stack {
+  margin: 0 56px;
+}
+#swipe-view.clips-landscape .swipe-card {
+  width: 100%;
+  max-width: calc(100vw - 112px);
+  max-height: 100vh;
+  border-radius: 12px;
+}
+#swipe-view.clips-landscape .swipe-card-back {
+  width: 100%;
+  max-width: calc(100vw - 112px);
+}
+#swipe-view.clips-landscape #swipe-actions {
+  flex-direction: column;
+  left: auto; right: 0; top: 0; bottom: 0;
+  width: 56px;
+  justify-content: center;
+  gap: 24px;
+  padding: 12px 8px;
+  background: #1e1e1e;
+  border-left: 1px solid #333;
+}
+#swipe-view.clips-landscape .swipe-action-btn {
+  width: 40px; height: 40px;
+  font-size: 20px;
+}
+#swipe-view.clips-landscape #swipe-counter {
+  position: fixed;
+  bottom: 12px; left: 56px; right: 56px;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  width: max-content;
+  margin: 0 auto;
+}
+
 /* ── Particle burst ──────────────────────────────────────────────────────── */
 .particle {
   position: fixed;
@@ -738,16 +800,38 @@ function buildMedia(item, isFullscreen) {
   return img;
 }
 
-// IntersectionObserver: lazy load CLIPS videos only, autoplay other videos
+// IntersectionObserver: lazy load/unload CLIPS videos, autoplay other videos
 var visibilityObserver = new IntersectionObserver(function(entries) {
   entries.forEach(function(entry) {
     var el = entry.target;
     if (el.tagName === 'VIDEO') {
-      // CLIPS videos: lazy load when in view (has data-src attribute)
+      // CLIPS videos: load when in view, unload when out of view (for memory)
       if (el.getAttribute('data-src')) {
         if (entry.isIntersecting) {
           el.src = el.getAttribute('data-src');
           el.removeAttribute('data-src');
+        }
+      } else if (galleryType === 'CLIPS') {
+        // CLIPS: truly unload when far out of view (free RAM)
+        if (!entry.isIntersecting && el.src && el.getAttribute('data-unloaded') !== 'true') {
+          var rect = el.getBoundingClientRect();
+          var viewportHeight = window.innerHeight;
+          // Unload if more than 2 viewport heights away
+          if (rect.top < -viewportHeight * 2 || rect.bottom > viewportHeight * 3) {
+            el.setAttribute('data-unloaded', 'true');
+            el.src = '';
+            el.load();
+          }
+        } else if (entry.isIntersecting && el.getAttribute('data-unloaded') === 'true') {
+          // Reload when coming back into view
+          var parent = el.closest('.thumb');
+          if (parent) {
+            var idx = parseInt(parent.getAttribute('data-index'));
+            if (items[idx]) {
+              el.src = items[idx].value;
+              el.removeAttribute('data-unloaded');
+            }
+          }
         }
       } else {
         // Other videos (NORMAL): autoplay when visible, pause when out of view
@@ -799,12 +883,78 @@ function renderGrid() {
     grid.innerHTML = '<div class="empty-msg">No items yet. Tap + to add URLs.</div>';
     return;
   }
-  // Render ALL thumbnails at once
-  items.forEach(function(item, index) {
-    var thumb = buildThumbElement(item, index);
+  
+  // CLIPS: viewport-based rendering (visible + buffer)
+  // NORMAL/REDGIF: render all at once
+  if (galleryType === 'CLIPS') {
+    renderClipsVirtualized();
+  } else {
+    // Render ALL thumbnails at once for non-CLIPS
+    items.forEach(function(item, index) {
+      var thumb = buildThumbElement(item, index);
+      grid.appendChild(thumb);
+      observeMedia(thumb);
+    });
+  }
+}
+
+// Virtualized rendering for CLIPS - only render visible + buffer
+function renderClipsVirtualized() {
+  var cols = currentCols || 2;
+  var itemHeight = window.innerHeight / (cols === 1 ? 3 : (cols === 2 ? 4 : 5)); // approx item height
+  var viewportHeight = window.innerHeight;
+  var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+  
+  // Calculate visible range
+  var visibleRowStart = Math.floor(scrollY / itemHeight);
+  var visibleRowEnd = Math.ceil((scrollY + viewportHeight) / itemHeight);
+  
+  // Buffer: 1-2 rows before and after
+  var bufferRows = 2;
+  var startRow = Math.max(0, visibleRowStart - bufferRows);
+  var endRow = visibleRowEnd + bufferRows;
+  
+  var startIndex = startRow * cols;
+  var endIndex = Math.min(endRow * cols, items.length);
+  
+  // Create placeholder to maintain grid layout
+  for (var i = 0; i < startIndex; i++) {
+    var placeholder = document.createElement('div');
+    placeholder.style.cssText = 'aspect-ratio: 16/9; background: transparent;';
+    grid.appendChild(placeholder);
+  }
+  
+  // Render visible items
+  for (var i = startIndex; i < endIndex; i++) {
+    var item = items[i];
+    var thumb = buildThumbElement(item, i);
+    thumb.setAttribute('data-virtual-index', i);
     grid.appendChild(thumb);
     observeMedia(thumb);
-  });
+  }
+  
+  // Create placeholder after to maintain grid layout
+  var remaining = items.length - endIndex;
+  for (var i = 0; i < remaining; i++) {
+    var placeholder = document.createElement('div');
+    placeholder.style.cssText = 'aspect-ratio: 16/9; background: transparent;';
+    grid.appendChild(placeholder);
+  }
+  
+  // Set up scroll listener for virtualization
+  if (!window.clipsScrollHandler) {
+    window.clipsScrollHandler = true;
+    window.addEventListener('scroll', function() {
+      var now = Date.now();
+      if (!window.lastClipsScroll || now - window.lastClipsScroll > 100) {
+        window.lastClipsScroll = now;
+        renderClipsVirtualized();
+      }
+    });
+    window.addEventListener('resize', function() {
+      renderClipsVirtualized();
+    });
+  }
 }
 
 function openFullscreen(index) {
@@ -813,6 +963,11 @@ function openFullscreen(index) {
   var content = document.getElementById('fullscreenContent');
   var fullscreen = document.getElementById('fullscreen');
   content.innerHTML = '';
+
+  // Request landscape for CLIPS videos
+  if (type === 'CLIPS') {
+    Android.requestLandscape();
+  }
 
   // ── REDGIF ─────────────────────────────────────────────────────────────────
   if (type === 'REDGIF') {
@@ -1046,6 +1201,8 @@ function closeFullscreen() {
   document.querySelectorAll('#fullscreen button:not(.close-btn):not(.random-btn)').forEach(function(b){ b.remove(); });
   document.getElementById('fullscreen').classList.remove('active');
   document.getElementById('fullscreenContent').innerHTML = '';
+  // Reset orientation
+  Android.resetOrientation();
 }
 
 var selectedIds = new Set();
@@ -1509,6 +1666,10 @@ function enterSwipeMode() {
   cardPoolIdx = [null, null, null];
   var sv = document.getElementById('swipe-view');
   sv.classList.add('active');
+  // Sideways layout for CLIPS
+  if (galleryType === 'CLIPS') {
+    sv.classList.add('clips-landscape');
+  }
   var ub = document.getElementById('unmuteSwipeBtn');
   if (ub && (galleryType === 'CLIPS' || galleryType === 'REDGIF')) ub.style.display = 'block';
   initCardPool();
@@ -1516,14 +1677,16 @@ function enterSwipeMode() {
 
 function exitSwipeMode() {
   document.querySelectorAll('#card-stack video').forEach(function(v) { v.pause(); v.muted = true; });
-  document.getElementById('swipe-view').classList.remove('active');
+  var sv = document.getElementById('swipe-view');
+  sv.classList.remove('active');
+  sv.classList.remove('clips-landscape');
   document.getElementById('card-stack').innerHTML = '';
   cardPool = [null, null, null];
   if (typeof visibilityObserver !== 'undefined') {
     document.querySelectorAll('#grid video, #grid iframe[data-src]').forEach(function(el) {
-      visibilityObserver.unobserve(el); visibilityObserver.observe(el);
-    });
+      visibilityObserver.unobserve(el); visibilityObserver.observe(el);});
   }
+}
 }
 
 // inject resolved URL into swipe card if it's the active one
