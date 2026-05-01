@@ -1765,16 +1765,8 @@ function applyIndividualMuteToCurrentCard() {
 }
 
 function enterSwipeMode() {
+  // Just pause grid videos - don't clear grid
   document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
-  
-  // Unload grid for CLIPS to save RAM
-  if (galleryType === 'CLIPS') {
-    document.querySelectorAll('#grid video').forEach(function(v) {
-      v.src = '';
-      v.load();
-    });
-    document.getElementById('grid').innerHTML = '';
-  }
   
   // Weighted shuffle on every entry so order is fresh-random each time
   swipeOrder = weightedShuffle(items.map(function(_, i) { return i; }));
@@ -1813,10 +1805,8 @@ function exitSwipeMode() {
   document.getElementById('card-stack').innerHTML = '';
   cardPool = [null, null, null];
   
-  // Reload grid for CLIPS when exiting Tinder
-  if (galleryType === 'CLIPS') {
-    renderClipsVirtualized();
-  } else if (typeof visibilityObserver !== 'undefined') {
+  // Re-observe videos after exiting Tinder
+  if (typeof visibilityObserver !== 'undefined') {
     document.querySelectorAll('#grid video, #grid iframe[data-src]').forEach(function(el) {
       visibilityObserver.unobserve(el); visibilityObserver.observe(el);});
   }
