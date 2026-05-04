@@ -913,26 +913,6 @@ function renderGrid() {
 var clipsLoadedCount = 0;
 var clipsBufferSize = 20;
 
-// Sentinel observer for CLIPS lazy loading
-var clipsSentinelObserver = new IntersectionObserver(function(entries) {
-  entries.forEach(function(entry) {
-    if (entry.isIntersecting && clipsLoadedCount < items.length) {
-      loadClipsBatch(clipsLoadedCount, clipsBufferSize);
-    }
-  });
-}, { rootMargin: '200px 0px', threshold: 0 });
-
-function addClipsSentinel() {
-  var oldSentinel = document.getElementById('clips-sentinel');
-  if (oldSentinel) clipsSentinelObserver.unobserve(oldSentinel);
-  var sentinel = document.createElement('div');
-  sentinel.id = 'clips-sentinel';
-  sentinel.style.height = '1px';
-  sentinel.style.width = '100%';
-  grid.appendChild(sentinel);
-  clipsSentinelObserver.observe(sentinel);
-}
-
 function renderClipsLazy() {
   clipsLoadedCount = 0;
   // Create placeholder divs for ALL items first (maintains grid layout)
@@ -948,8 +928,20 @@ function renderClipsLazy() {
   // Load first batch
   loadClipsBatch(0, clipsBufferSize);
   
-  // Add sentinel for lazy loading (triggers when scrolling to bottom of loaded content)
-  addClipsSentinel();
+  // Set up scroll listener - triggers every 800px scrolled
+  if (!window.clipsScrollHandler) {
+    window.clipsScrollHandler = true;
+    window.clipsLastScrollY = 0;
+    window.addEventListener('scroll', function() {
+      var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+      if (scrollY > window.clipsLastScrollY + 800) {
+        window.clipsLastScrollY = scrollY;
+        if (clipsLoadedCount < items.length) {
+          loadClipsBatch(clipsLoadedCount, clipsBufferSize);
+        }
+      }
+    });
+  }
 }
 
 function loadClipsBatch(startIndex, count) {
@@ -963,10 +955,6 @@ function loadClipsBatch(startIndex, count) {
         clipsLoadedCount = Math.max(clipsLoadedCount, i + 1);
       }
     }
-  }
-  // Add sentinel if more items to load
-  if (clipsLoadedCount < items.length) {
-    addClipsSentinel();
   }
 }
 
@@ -1711,6 +1699,9 @@ function enterSwipeMode() {
     clipsLoadedCount = 0;
   }
   
+  // Pause all grid videos for ALL gallery types
+  document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
+  
   // Weighted shuffle on every entry so order is fresh-random each time
   swipeOrder = weightedShuffle(items.map(function(_, i) { return i; }));
   swipePos = 0;
@@ -1746,9 +1737,17 @@ function exitSwipeMode() {
   document.getElementById('card-stack').innerHTML = '';
   cardPool = [null, null, null];
   
-  // RE-LOAD grid for CLIPS when exiting Tinder
+  // For CLIPS: reload grid with lazy loading
   if (galleryType === 'CLIPS') {
     renderClipsLazy();
+  }
+  
+  // For ALL galleries: re-observe videos for IntersectionObserver
+  if (typeof visibilityObserver !== 'undefined') {
+    document.querySelectorAll('#grid video, #grid iframe[data-src]').forEach(function(el) {
+      visibilityObserver.unobserve(el); 
+      visibilityObserver.observe(el);
+    });
   }
 }
 
