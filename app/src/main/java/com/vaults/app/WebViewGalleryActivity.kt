@@ -913,6 +913,26 @@ function renderGrid() {
 var clipsLoadedCount = 0;
 var clipsBufferSize = 20;
 
+// Sentinel observer for CLIPS lazy loading
+var clipsSentinelObserver = new IntersectionObserver(function(entries) {
+  entries.forEach(function(entry) {
+    if (entry.isIntersecting && clipsLoadedCount < items.length) {
+      loadClipsBatch(clipsLoadedCount, clipsBufferSize);
+    }
+  });
+}, { rootMargin: '200px 0px', threshold: 0 });
+
+function addClipsSentinel() {
+  var oldSentinel = document.getElementById('clips-sentinel');
+  if (oldSentinel) clipsSentinelObserver.unobserve(oldSentinel);
+  var sentinel = document.createElement('div');
+  sentinel.id = 'clips-sentinel';
+  sentinel.style.height = '1px';
+  sentinel.style.width = '100%';
+  grid.appendChild(sentinel);
+  clipsSentinelObserver.observe(sentinel);
+}
+
 function renderClipsLazy() {
   clipsLoadedCount = 0;
   // Create placeholder divs for ALL items first (maintains grid layout)
@@ -928,21 +948,8 @@ function renderClipsLazy() {
   // Load first batch
   loadClipsBatch(0, clipsBufferSize);
   
-  // Set up scroll listener for lazy loading
-  if (!window.clipsLazyScrollHandler) {
-    window.clipsLazyScrollHandler = true;
-    window.addEventListener('scroll', function() {
-      var scrollY = window.pageYOffset || document.documentElement.scrollTop;
-      var viewportHeight = window.innerHeight;
-      var scrollBottom = scrollY + viewportHeight;
-      var totalHeight = document.documentElement.scrollHeight;
-      
-      // Load more when getting near bottom
-      if (scrollBottom > totalHeight - viewportHeight * 2) {
-        loadClipsBatch(clipsLoadedCount, clipsBufferSize);
-      }
-    });
-  }
+  // Add sentinel for lazy loading (triggers when scrolling to bottom of loaded content)
+  addClipsSentinel();
 }
 
 function loadClipsBatch(startIndex, count) {
@@ -956,6 +963,10 @@ function loadClipsBatch(startIndex, count) {
         clipsLoadedCount = Math.max(clipsLoadedCount, i + 1);
       }
     }
+  }
+  // Add sentinel if more items to load
+  if (clipsLoadedCount < items.length) {
+    addClipsSentinel();
   }
 }
 
@@ -1694,8 +1705,11 @@ function applyIndividualMuteToCurrentCard() {
 }
 
 function enterSwipeMode() {
-  // Just pause grid videos - don't clear grid
-  document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
+  // UNLOAD grid for CLIPS to free RAM
+  if (galleryType === 'CLIPS') {
+    grid.innerHTML = '';
+    clipsLoadedCount = 0;
+  }
   
   // Weighted shuffle on every entry so order is fresh-random each time
   swipeOrder = weightedShuffle(items.map(function(_, i) { return i; }));
@@ -1732,10 +1746,9 @@ function exitSwipeMode() {
   document.getElementById('card-stack').innerHTML = '';
   cardPool = [null, null, null];
   
-  // Re-observe videos after exiting Tinder
-  if (typeof visibilityObserver !== 'undefined') {
-    document.querySelectorAll('#grid video, #grid iframe[data-src]').forEach(function(el) {
-      visibilityObserver.unobserve(el); visibilityObserver.observe(el);});
+  // RE-LOAD grid for CLIPS when exiting Tinder
+  if (galleryType === 'CLIPS') {
+    renderClipsLazy();
   }
 }
 
