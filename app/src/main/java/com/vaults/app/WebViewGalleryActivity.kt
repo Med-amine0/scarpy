@@ -779,6 +779,49 @@ function buildThumbElement(item, index) {
 
   if (galleryType === 'REDGIF') {
     thumb.appendChild(makeOverlay(index));
+  } else if (galleryType === 'CLIPS') {
+    // CLIPS: tap to expand, long press to play in thumbnail
+    var longPressTimer = null;
+    thumb.ontouchstart = function(e) {
+      longPressTimer = setTimeout(function() {
+        // Long press - play video in thumbnail
+        var img = thumb.querySelector('img[data-video-src]');
+        if (img) {
+          var videoSrc = img.getAttribute('data-video-src');
+          var video = document.createElement('video');
+          video.src = videoSrc;
+          video.autoplay = true;
+          video.muted = true;
+          video.loop = true;
+          video.setAttribute('playsinline', '');
+          video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+          img.replaceWith(video);
+        }
+      }, 500);
+    };
+    thumb.ontouchend = function() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+        // Stop playing video if exists, restore image
+        var video = thumb.querySelector('video');
+        if (video) {
+          video.pause();
+          var img = document.createElement('img');
+          img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+          img.style.cssText = 'width:100%;height:100%;object-fit:cover;background:#1a1a1a;';
+          img.setAttribute('data-video-src', video.src);
+          video.replaceWith(img);
+        }
+      }
+    };
+    thumb.ontouchmove = function() {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    };
+    thumb.onclick = function() { if (!window.editMode) openFullscreen(index); };
   } else {
     thumb.onclick = function() { if (!window.editMode) openFullscreen(index); };
   }
@@ -821,13 +864,20 @@ function buildMedia(item, isFullscreen) {
       v.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
       return v;
     }
-    // Grid view: load thumbnails immediately like Tinder swipe cards
+    // CLIPS grid: use static thumbnail image (no video in grid)
+    if (type === 'CLIPS') {
+      var img = document.createElement('img');
+      img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover;background:#1a1a1a;';
+      img.setAttribute('data-video-src', value);
+      return img;
+    }
+    // Other galleries: use video in grid
     v.src = value;
     v.autoplay = true;
     v.muted = true;
     v.loop = true;
     v.setAttribute('playsinline', '');
-    v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
@@ -896,66 +946,12 @@ function renderGrid() {
     return;
   }
   
-  // CLIPS: lazy load videos (only visible + buffer)
-  if (galleryType === 'CLIPS') {
-    renderClipsLazy();
-  } else {
-    // Other types: render all at once
-    items.forEach(function(item, index) {
-      var thumb = buildThumbElement(item, index);
-      grid.appendChild(thumb);
-      observeMedia(thumb);
-    });
-  }
-}
-
-// Lazy loading for CLIPS: only load visible + buffer videos
-var clipsLoadedCount = 0;
-var clipsBufferSize = 20;
-
-function renderClipsLazy() {
-  clipsLoadedCount = 0;
-  // Create placeholder divs for ALL items first (maintains grid layout)
-  for (var i = 0; i < items.length; i++) {
-    var placeholder = document.createElement('div');
-    placeholder.className = 'thumb landscape';
-    placeholder.setAttribute('data-index', i);
-    placeholder.style.background = '#1a1a1a';
-    placeholder.style.borderRadius = '12px';
-    grid.appendChild(placeholder);
-  }
-  
-  // Load first batch
-  loadClipsBatch(0, clipsBufferSize);
-  
-  // Set up scroll listener - triggers every 800px scrolled
-  if (!window.clipsScrollHandler) {
-    window.clipsScrollHandler = true;
-    window.clipsLastScrollY = 0;
-    window.addEventListener('scroll', function() {
-      var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
-      if (scrollY > window.clipsLastScrollY + 800) {
-        window.clipsLastScrollY = scrollY;
-        if (clipsLoadedCount < items.length) {
-          loadClipsBatch(clipsLoadedCount, clipsBufferSize);
-        }
-      }
-    });
-  }
-}
-
-function loadClipsBatch(startIndex, count) {
-  var endIndex = Math.min(startIndex + count, items.length);
-  for (var i = startIndex; i < endIndex; i++) {
-    if (i >= clipsLoadedCount) {
-      var placeholder = grid.querySelector('[data-index="' + i + '"]');
-      if (placeholder && items[i]) {
-        var thumb = buildThumbElement(items[i], i);
-        placeholder.replaceWith(thumb);
-        clipsLoadedCount = Math.max(clipsLoadedCount, i + 1);
-      }
-    }
-  }
+  // Render ALL thumbnails at once for all gallery types
+  items.forEach(function(item, index) {
+    var thumb = buildThumbElement(item, index);
+    grid.appendChild(thumb);
+    observeMedia(thumb);
+  });
 }
 
 function openFullscreen(index) {
@@ -1693,12 +1689,6 @@ function applyIndividualMuteToCurrentCard() {
 }
 
 function enterSwipeMode() {
-  // UNLOAD grid for CLIPS to free RAM
-  if (galleryType === 'CLIPS') {
-    grid.innerHTML = '';
-    clipsLoadedCount = 0;
-  }
-  
   // Pause all grid videos for ALL gallery types
   document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
   
@@ -1736,11 +1726,6 @@ function exitSwipeMode() {
   sv.classList.remove('flipped');
   document.getElementById('card-stack').innerHTML = '';
   cardPool = [null, null, null];
-  
-  // For CLIPS: reload grid with lazy loading
-  if (galleryType === 'CLIPS') {
-    renderClipsLazy();
-  }
   
   // For ALL galleries: re-observe videos for IntersectionObserver
   if (typeof visibilityObserver !== 'undefined') {
