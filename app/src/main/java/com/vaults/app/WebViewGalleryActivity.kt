@@ -262,6 +262,39 @@ body { background: #000; }
   align-items: center;
   z-index: 1000;
 }
+.move-to-top-dialog {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+.move-to-top-dialog.active { display: flex; }
+.move-to-top-dialog .dialog-content {
+  background: #222;
+  padding: 20px 30px;
+  border-radius: 12px;
+  text-align: center;
+  color: #fff;
+  font-size: 16px;
+}
+.move-to-top-dialog .dialog-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+.move-to-top-dialog button {
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+.move-to-top-dialog .btn-ok { background: #ff69b4; color: #fff; }
+.move-to-top-dialog .btn-cancel { background: #444; color: #fff; }
 .fullscreen.active { display: flex; }
 .fullscreen-content {
   width: 100%;
@@ -672,6 +705,15 @@ body { background: #000; }
   <span id="clips-page-info">1 / 1</span>
   <button id="btn-next" onclick="nextClipsPage()">▶</button>
 </div>
+<div id="move-to-top-dialog" class="move-to-top-dialog">
+  <div class="dialog-content">
+    <p>Move this item to the first position?</p>
+    <div class="dialog-buttons">
+      <button class="btn-ok" onclick="confirmMoveToTop()">OK</button>
+      <button class="btn-cancel" onclick="closeMoveToTopDialog()">Cancel</button>
+    </div>
+  </div>
+</div>
 <div class="fullscreen" id="fullscreen">
   <button class="close-btn" onclick="closeFullscreen()">×</button>
   <div class="fullscreen-content" id="fullscreenContent"></div>
@@ -741,6 +783,24 @@ function buildThumbElement(item, index) {
   thumb.setAttribute('data-id', item.id);
   thumb.setAttribute('data-index', index);
   thumb.appendChild(buildMedia(item, false));
+
+  // Long press to move to top (for all galleries)
+  var longPressTimer = null;
+  thumb.oncontextmenu = function(e) {
+    e.preventDefault();
+    showMoveToTopDialog(index);
+  };
+  thumb.ontouchstart = function(e) {
+    longPressTimer = setTimeout(function() {
+      showMoveToTopDialog(index);
+    }, 500);
+  };
+  thumb.ontouchend = function() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+  };
+  thumb.ontouchmove = function() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+  };
 
   // Selection checkmark (visible when thumb.selected)
   var check = document.createElement('div');
@@ -1067,6 +1127,37 @@ function updateClipsNavButtons() {
   prevBtn.disabled = clipsCurrentPage <= 0;
   nextBtn.disabled = clipsCurrentPage >= clipsTotalPages - 1;
   document.getElementById('clips-page-info').textContent = (clipsCurrentPage + 1) + ' / ' + clipsTotalPages;
+}
+
+var moveToTopItemIndex = null;
+
+function showMoveToTopDialog(index) {
+  moveToTopItemIndex = index;
+  document.getElementById('move-to-top-dialog').classList.add('active');
+}
+
+function closeMoveToTopDialog() {
+  moveToTopItemIndex = null;
+  document.getElementById('move-to-top-dialog').classList.remove('active');
+}
+
+function confirmMoveToTop() {
+  if (moveToTopItemIndex === null || moveToTopItemIndex === 0) {
+    closeMoveToTopDialog();
+    return;
+  }
+  
+  var itemId = items[moveToTopItemIndex].id;
+  Android.moveItemToFirst(itemId);
+  
+  closeMoveToTopDialog();
+  
+  // Rebuild the view
+  if (galleryType === 'CLIPS') {
+    initClipsPager();
+  } else {
+    renderGrid();
+  }
 }
 
 function closeClipsPager() {
@@ -1935,6 +2026,20 @@ renderGrid();
                 VaultsApp.instance.db.galleryItemDao().updateSortOrder(itemId, otherItem.sortOrder)
                 VaultsApp.instance.db.galleryItemDao().updateSortOrder(otherItem.id, tempSort)
                 // No UI reload — JS already swapped the DOM nodes in moveItemInGrid()
+            }
+        }
+
+        @JavascriptInterface
+        fun moveItemToFirst(itemId: Long) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val items = VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
+                val currentItem = items.find { it.id == itemId } ?: return@launch
+                val firstItem = items.minByOrNull { it.sortOrder } ?: return@launch
+                if (currentItem.id == firstItem.id) return@launch
+                
+                val tempSort = currentItem.sortOrder
+                VaultsApp.instance.db.galleryItemDao().updateSortOrder(itemId, firstItem.sortOrder)
+                VaultsApp.instance.db.galleryItemDao().updateSortOrder(firstItem.id, tempSort)
             }
         }
 
