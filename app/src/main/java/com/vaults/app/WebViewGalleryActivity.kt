@@ -1085,6 +1085,19 @@ function loadClipsPage(pageNum) {
     video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     video.onclick = (function(idx) { return function() { openFullscreen(idx); }; })(i);
     
+    // Add long press handler for CLIPS pager videos
+    var longPressTimer = null;
+    video.oncontextmenu = (function(idx) { return function(e) { e.preventDefault(); showMoveToTopDialog(idx); }; })(i);
+    video.ontouchstart = (function(idx) { return function(e) {
+      longPressTimer = setTimeout(function() { showMoveToTopDialog(idx); }, 500);
+    }; })(i);
+    video.ontouchend = function() {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    };
+    video.ontouchmove = function() {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    };
+    
     thumb.appendChild(video);
     grid.appendChild(thumb);
   }
