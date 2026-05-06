@@ -960,7 +960,10 @@ function buildMedia(item, isFullscreen) {
     // Fullscreen: use src directly for immediate playback with native controls
     if (isFullscreen) {
       v.src = value;
-      v.controls = true;
+      v.controls = (type !== 'CLIPS'); // CLIPS: no controls, use tap to play/pause
+      v.loop = (type === 'CLIPS'); // CLIPS: loop in fullscreen
+      v.autoplay = true;
+      v.muted = true;
       v.setAttribute('playsinline', '');
       v.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;';
       return v;
@@ -1013,6 +1016,21 @@ var visibilityObserver = new IntersectionObserver(function(entries) {
     }
   });
 }, { rootMargin: '200px 0px', threshold: 0.01 });
+
+// CLIPS lazy load observer - loads real video when in view
+var clipsLazyObserver = new IntersectionObserver(function(entries) {
+  entries.forEach(function(entry) {
+    var video = entry.target;
+    if (entry.isIntersecting && video.getAttribute('data-loaded') === 'false') {
+      var realSrc = video.getAttribute('data-real-src');
+      if (realSrc) {
+        video.src = realSrc;
+        video.setAttribute('data-loaded', 'true');
+        clipsLazyObserver.unobserve(video);
+      }
+    }
+  });
+}, { rootMargin: '100px 0px', threshold: 0.01 });
 
 function observeMedia(container) {
   container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
@@ -1090,27 +1108,32 @@ function loadClipsPage(pageNum) {
     var thumb = document.createElement('div');
     thumb.className = 'thumb landscape';
     
-    // Use real video src with placeholder as poster
+    // Create video with placeholder src (plays first)
     var video = document.createElement('video');
-    video.src = item.value;
+    if (clipsPlaceholderUrls.length > 0) {
+      video.src = clipsPlaceholderUrls[i % clipsPlaceholderUrls.length];
+    } else {
+      video.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+    }
     video.muted = true;
     video.loop = true;
     video.autoplay = true;
     video.setAttribute('playsinline', '');
     video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     
-    // Add placeholder as poster image if available
-    if (clipsPlaceholderUrls.length > 0) {
-      video.poster = clipsPlaceholderUrls[i % clipsPlaceholderUrls.length];
-    }
+    // Store real URL and placeholder URL
+    video.setAttribute('data-real-src', item.value);
+    video.setAttribute('data-placeholder-src', clipsPlaceholderUrls.length > 0 ? clipsPlaceholderUrls[i % clipsPlaceholderUrls.length] : '');
+    video.setAttribute('data-loaded', 'false');
+    video.setAttribute('data-index', i);
     
-    // Store index using data attribute for fullscreen
-    video.dataset.index = i;
+    // Observe for lazy loading when in view
+    clipsLazyObserver.observe(video);
     
     // Click handler - double click opens fullscreen
     var clickTimeout = null;
     video.onclick = function() {
-      var idx = parseInt(this.dataset.index);
+      var idx = parseInt(this.getAttribute('data-index'));
       if (clickTimeout) {
         clearTimeout(clickTimeout);
         clickTimeout = null;
@@ -1126,11 +1149,11 @@ function loadClipsPage(pageNum) {
     var longPressTimer = null;
     video.oncontextmenu = function(e) {
       e.preventDefault();
-      showMoveToTopDialog(parseInt(this.dataset.index));
+      showMoveToTopDialog(parseInt(this.getAttribute('data-index')));
     };
     video.ontouchstart = function(e) {
       longPressTimer = setTimeout(function() {
-        showMoveToTopDialog(parseInt(this.dataset.index));
+        showMoveToTopDialog(parseInt(this.getAttribute('data-index')));
       }.bind(this), 500);
     };
     video.ontouchend = function() {
