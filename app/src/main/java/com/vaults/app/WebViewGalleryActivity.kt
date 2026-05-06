@@ -766,6 +766,16 @@ function toggleMuteAll() {
   document.getElementById('unmuteBtn').textContent = isMuted ? '🔇' : '🔊';
 }
 
+function updateItems(newItems) {
+  items = newItems;
+  // Rebuild the view with new order
+  if (galleryType === 'CLIPS') {
+    initClipsPager();
+  } else {
+    renderGrid();
+  }
+}
+
 var grid = document.getElementById('grid');
 var defaultCols = (galleryType === 'CLIPS' || galleryType === 'REDGIF') ? 2 : 3;
 var savedCols = $savedCols;
@@ -1080,28 +1090,24 @@ function loadClipsPage(pageNum) {
     var thumb = document.createElement('div');
     thumb.className = 'thumb landscape';
     
-    // Use placeholder video if available, otherwise black screen
-    var video;
+    // Use real video src with placeholder as poster
+    var video = document.createElement('video');
+    video.src = item.value;
+    video.muted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.setAttribute('playsinline', '');
+    video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    
+    // Add placeholder as poster image if available
     if (clipsPlaceholderUrls.length > 0) {
-      video = document.createElement('video');
-      video.src = clipsPlaceholderUrls[i % clipsPlaceholderUrls.length];
-      video.muted = true;
-      video.loop = true;
-      video.autoplay = true;
-      video.setAttribute('playsinline', '');
-      video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-      video.setAttribute('data-real-src', item.value);
-    } else {
-      // Black placeholder - click to load real video
-      video = document.createElement('div');
-      video.style.cssText = 'width:100%;height:100%;background:#000;position:relative;';
-      video.setAttribute('data-real-src', item.value);
+      video.poster = clipsPlaceholderUrls[i % clipsPlaceholderUrls.length];
     }
     
-    // Store index using data attribute
+    // Store index using data attribute for fullscreen
     video.dataset.index = i;
     
-    // Click handler - single click loads real video, double click opens fullscreen
+    // Click handler - double click opens fullscreen
     var clickTimeout = null;
     video.onclick = function() {
       var idx = parseInt(this.dataset.index);
@@ -1112,17 +1118,7 @@ function loadClipsPage(pageNum) {
       } else {
         clickTimeout = setTimeout(function() {
           clickTimeout = null;
-          // Load and play real video
-          var realVideo = document.createElement('video');
-          realVideo.src = this.getAttribute('data-real-src');
-          realVideo.muted = true;
-          realVideo.loop = true;
-          realVideo.autoplay = true;
-          realVideo.setAttribute('playsinline', '');
-          realVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-          this.parentNode.replaceChild(realVideo, this);
-          realVideo.play();
-        }.bind(this), 300);
+        }, 300);
       }
     };
     
@@ -1211,12 +1207,8 @@ function confirmMoveToTop() {
   
   closeMoveToTopDialog();
   
-  // Rebuild the view
-  if (galleryType === 'CLIPS') {
-    initClipsPager();
-  } else {
-    renderGrid();
-  }
+  // Reload items from database to reflect new order
+  Android.reloadGalleryItems();
 }
 
 function closeClipsPager() {
@@ -2093,12 +2085,35 @@ renderGrid();
             lifecycleScope.launch(Dispatchers.IO) {
                 val items = VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
                 val currentItem = items.find { it.id == itemId } ?: return@launch
-                val firstItem = items.minByOrNull { it.sortOrder } ?: return@launch
-                if (currentItem.id == firstItem.id) return@launch
+                if (currentItem.sortOrder == 0) return@launch
                 
-                val tempSort = currentItem.sortOrder
-                VaultsApp.instance.db.galleryItemDao().updateSortOrder(itemId, firstItem.sortOrder)
-                VaultsApp.instance.db.galleryItemDao().updateSortOrder(firstItem.id, tempSort)
+                // Move item to top (sortOrder 0) and shift all others down by 1
+                VaultsApp.instance.db.galleryItemDao().updateSortOrder(itemId, 0)
+                items.filter { it.id != itemId }.forEach { item ->
+                    VaultsApp.instance.db.galleryItemDao().updateSortOrder(item.id, item.sortOrder + 1)
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun reloadGalleryItems() {
+            lifecycleScope.launch {
+                val items = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
+                }
+                val itemsJson = JSONArray()
+                items.forEach { item ->
+                    val obj = JSONObject().apply {
+                        put("id", item.id)
+                        put("value", item.value)
+                        put("type", galleryType.name)
+                        put("sortOrder", item.sortOrder)
+                    }
+                    itemsJson.put(obj)
+                }
+                withContext(Dispatchers.Main) {
+                    binding.webView.evaluateJavascript("updateItems($itemsJson);", null)
+                }
             }
         }
 
