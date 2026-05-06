@@ -215,6 +215,28 @@ body { background: #000; }
   gap: 4px;
   padding: 4px;
 }
+#clips-navbar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 44px;
+  background: #111;
+  display: none;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 100;
+}
+#clips-navbar.active { display: flex; }
+#clips-navbar button {
+  background: transparent;
+  border: none;
+  color: #ff69b4;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 8px 16px;
+}
+#clips-navbar button:disabled { color: #444; cursor: default; }
+#clips-page-info { color: #fff; font-size: 14px; }
 .thumb {
   position: relative;
   border-radius: 12px;
@@ -645,6 +667,11 @@ body { background: #000; }
   <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
+<div id="clips-navbar">
+  <button id="btn-prev" onclick="prevClipsPage()">◀</button>
+  <span id="clips-page-info">1 / 1</span>
+  <button id="btn-next" onclick="nextClipsPage()">▶</button>
+</div>
 <div class="fullscreen" id="fullscreen">
   <button class="close-btn" onclick="closeFullscreen()">×</button>
   <div class="fullscreen-content" id="fullscreenContent"></div>
@@ -946,12 +973,106 @@ function renderGrid() {
     return;
   }
   
+  // CLIPS: use pager instead of grid
+  if (galleryType === 'CLIPS') {
+    initClipsPager();
+    return;
+  }
+  
   // Render ALL thumbnails at once for all gallery types
   items.forEach(function(item, index) {
     var thumb = buildThumbElement(item, index);
     grid.appendChild(thumb);
     observeMedia(thumb);
   });
+}
+
+// CLIPS Pager Functions
+var clipsPageSize = 20;
+var clipsCurrentPage = 0;
+var clipsTotalPages = 0;
+var clipsPageLoadTimer = null;
+var clipsLoadedPages = {};
+
+function initClipsPager() {
+  clipsTotalPages = Math.ceil(items.length / clipsPageSize);
+  clipsCurrentPage = 0;
+  clipsLoadedPages = {};
+  
+  document.getElementById('clips-navbar').classList.add('active');
+  updateClipsNavButtons();
+  loadClipsPage(0);
+}
+
+function loadClipsPage(pageNum) {
+  if (clipsLoadedPages[pageNum]) return;
+  
+  var startIdx = pageNum * clipsPageSize;
+  var endIdx = Math.min(startIdx + clipsPageSize, items.length);
+  
+  grid.innerHTML = '';
+  for (var i = startIdx; i < endIdx; i++) {
+    var item = items[i];
+    var thumb = document.createElement('div');
+    thumb.className = 'thumb landscape';
+    
+    var video = document.createElement('video');
+    video.src = item.value;
+    video.muted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.setAttribute('playsinline', '');
+    video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    video.onclick = (function(idx) { return function() { openFullscreen(idx); }; })(i);
+    
+    thumb.appendChild(video);
+    grid.appendChild(thumb);
+  }
+  
+  clipsLoadedPages[pageNum] = true;
+  updateClipsNavButtons();
+}
+
+function unloadClipsPage(pageNum) {
+  if (!clipsLoadedPages[pageNum]) return;
+  clipsLoadedPages[pageNum] = false;
+}
+
+function prevClipsPage() {
+  if (clipsCurrentPage <= 0) return;
+  changeClipsPage(clipsCurrentPage - 1);
+}
+
+function nextClipsPage() {
+  if (clipsCurrentPage >= clipsTotalPages - 1) return;
+  changeClipsPage(clipsCurrentPage + 1);
+}
+
+function changeClipsPage(newPage) {
+  unloadClipsPage(clipsCurrentPage);
+  
+  if (clipsPageLoadTimer) clearTimeout(clipsPageLoadTimer);
+  
+  clipsPageLoadTimer = setTimeout(function() {
+    clipsCurrentPage = newPage;
+    loadClipsPage(newPage);
+    document.getElementById('clips-page-info').textContent = (clipsCurrentPage + 1) + ' / ' + clipsTotalPages;
+    updateClipsNavButtons();
+  }, 300);
+}
+
+function updateClipsNavButtons() {
+  var prevBtn = document.getElementById('btn-prev');
+  var nextBtn = document.getElementById('btn-next');
+  prevBtn.disabled = clipsCurrentPage <= 0;
+  nextBtn.disabled = clipsCurrentPage >= clipsTotalPages - 1;
+  document.getElementById('clips-page-info').textContent = (clipsCurrentPage + 1) + ' / ' + clipsTotalPages;
+}
+
+function closeClipsPager() {
+  document.getElementById('clips-navbar').classList.remove('active');
+  unloadClipsPage(clipsCurrentPage);
+  clipsLoadedPages = {};
 }
 
 function openFullscreen(index) {
@@ -1689,6 +1810,9 @@ function applyIndividualMuteToCurrentCard() {
 }
 
 function enterSwipeMode() {
+  // Close CLIPS pager if open
+  closeClipsPager();
+  
   // Pause all grid videos for ALL gallery types
   document.querySelectorAll('#grid video').forEach(function(v) { v.pause(); });
   
