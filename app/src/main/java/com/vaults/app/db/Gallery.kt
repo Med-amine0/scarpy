@@ -26,7 +26,8 @@ data class Gallery(
     val loadMode: LoadMode = LoadMode.LAZY,
     val viewMode: ViewMode = ViewMode.GRID,
     val columnCount: Int = 3,
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    val clipsPlaceholderUrl: String? = null
 )
 
 enum class GalleryType {

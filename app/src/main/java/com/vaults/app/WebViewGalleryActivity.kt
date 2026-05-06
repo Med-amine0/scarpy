@@ -122,7 +122,8 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
             val savedCols = gallery?.columnCount ?: 0
             val galleryName = gallery?.name ?: "Gallery"
-            loadThumbnailGridFast(itemsJson.toString(), defaultVolume, savedCols, galleryName, items.size)
+            val clipsPlaceholderUrl = gallery?.clipsPlaceholderUrl
+            loadThumbnailGridFast(itemsJson.toString(), defaultVolume, savedCols, galleryName, items.size, clipsPlaceholderUrl)
 
             // Preload all MD thumbnails in parallel — they're small (~100kb) so fire all at once
             if (type == GalleryType.NORMAL) {
@@ -178,9 +179,10 @@ body { background: #000; display: flex; justify-content: center; align-items: ce
 </html>
     """.trimIndent()
 
-    private fun loadThumbnailGridFast(itemsJson: String, defaultVolume: Int, savedCols: Int = 0, galleryName: String = "Gallery", itemCount: Int = 0) {
+    private fun loadThumbnailGridFast(itemsJson: String, defaultVolume: Int, savedCols: Int = 0, galleryName: String = "Gallery", itemCount: Int = 0, clipsPlaceholderUrl: String? = null) {
         val galleryType = this.galleryType.name
         val escapedName = galleryName.replace("\"", "\\\"").replace("'", "\\'")
+        val clipsPlaceholderJson = if (clipsPlaceholderUrl != null) "'${clipsPlaceholderUrl.replace("'", "\\'")}'" else "null"
 
         val html = """
 <!DOCTYPE html>
@@ -697,6 +699,7 @@ body { background: #000; }
   <button onclick="enterSwipeMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-right:8px;" title="Swipe mode">🃏</button>
   <button onclick="Android.showAddDialog()" style="background:transparent;border:none;color:#ff69b4;font-size:22px;cursor:pointer;margin-right:8px;" title="Add">＋</button>
   <button id="btn-delete-sel" onclick="deleteSelected()" style="display:none;background:transparent;border:none;color:#f44336;font-size:20px;cursor:pointer;margin-right:8px;" title="Delete selected">🗑️</button>
+  <button onclick="Android.showSettingsDialog()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;margin-right:8px;" title="Settings">⚙️</button>
   <button onclick="toggleEditMode()" style="background:transparent;border:none;color:#ff69b4;font-size:20px;cursor:pointer;">✏️</button>
 </div>
 <div class="thumb-grid" id="grid"></div>
@@ -747,6 +750,7 @@ body { background: #000; }
 var items = $itemsJson;
 var galleryType = '$galleryType';
 var defaultVolume = $defaultVolume;
+var clipsPlaceholderUrls = $clipsPlaceholderJson ? $clipsPlaceholderJson.split(',').map(function(u) { return u.trim(); }).filter(function(u) { return u.length > 0; }) : [];
 var isMuted = true;
 
 if (galleryType === 'CLIPS' || galleryType === 'REDGIF') {
@@ -1076,21 +1080,63 @@ function loadClipsPage(pageNum) {
     var thumb = document.createElement('div');
     thumb.className = 'thumb landscape';
     
-    var video = document.createElement('video');
-    video.src = item.value;
-    video.muted = true;
-    video.loop = true;
-    video.autoplay = true;
-    video.setAttribute('playsinline', '');
-    video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-    video.onclick = (function(idx) { return function() { openFullscreen(idx); }; })(i);
+    // Use placeholder video if available, otherwise black screen
+    var video;
+    if (clipsPlaceholderUrls.length > 0) {
+      video = document.createElement('video');
+      video.src = clipsPlaceholderUrls[i % clipsPlaceholderUrls.length];
+      video.muted = true;
+      video.loop = true;
+      video.autoplay = true;
+      video.setAttribute('playsinline', '');
+      video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+      video.setAttribute('data-real-src', item.value);
+    } else {
+      // Black placeholder - click to load real video
+      video = document.createElement('div');
+      video.style.cssText = 'width:100%;height:100%;background:#000;position:relative;';
+      video.setAttribute('data-real-src', item.value);
+    }
     
-    // Add long press handler for CLIPS pager videos
+    // Store index using data attribute
+    video.dataset.index = i;
+    
+    // Click handler - single click loads real video, double click opens fullscreen
+    var clickTimeout = null;
+    video.onclick = function() {
+      var idx = parseInt(this.dataset.index);
+      if (clickTimeout) {
+        clearTimeout(clickTimeout);
+        clickTimeout = null;
+        openFullscreen(idx);
+      } else {
+        clickTimeout = setTimeout(function() {
+          clickTimeout = null;
+          // Load and play real video
+          var realVideo = document.createElement('video');
+          realVideo.src = this.getAttribute('data-real-src');
+          realVideo.muted = true;
+          realVideo.loop = true;
+          realVideo.autoplay = true;
+          realVideo.setAttribute('playsinline', '');
+          realVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+          this.parentNode.replaceChild(realVideo, this);
+          realVideo.play();
+        }.bind(this), 300);
+      }
+    };
+    
+    // Long press handler for move to top
     var longPressTimer = null;
-    video.oncontextmenu = (function(idx) { return function(e) { e.preventDefault(); showMoveToTopDialog(idx); }; })(i);
-    video.ontouchstart = (function(idx) { return function(e) {
-      longPressTimer = setTimeout(function() { showMoveToTopDialog(idx); }, 500);
-    }; })(i);
+    video.oncontextmenu = function(e) {
+      e.preventDefault();
+      showMoveToTopDialog(parseInt(this.dataset.index));
+    };
+    video.ontouchstart = function(e) {
+      longPressTimer = setTimeout(function() {
+        showMoveToTopDialog(parseInt(this.dataset.index));
+      }.bind(this), 500);
+    };
     video.ontouchend = function() {
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
     };
@@ -2226,6 +2272,56 @@ renderGrid();
                     }
                     .setNegativeButton("Cancel", null)
                     .show()
+            }
+        }
+
+        @JavascriptInterface
+        fun showSettingsDialog() {
+            runOnUiThread {
+                lifecycleScope.launch {
+                    val gallery = withContext(Dispatchers.IO) {
+                        VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)
+                    }
+                    
+                    val container = android.widget.LinearLayout(context).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        setPadding(48, 24, 48, 8)
+                    }
+
+                    val placeholderLabel = android.widget.TextView(context).apply {
+                        text = "Placeholder URLs (CLIPS only, comma-separated)"
+                        setTextColor(android.graphics.Color.WHITE)
+                        visibility = if (galleryType == GalleryType.CLIPS) android.view.View.VISIBLE else android.view.View.GONE
+                    }
+                    container.addView(placeholderLabel)
+
+                    val placeholderInput = android.widget.EditText(context).apply {
+                        hint = "url1.mp4, url2.mp4, url3.mp4"
+                        setTextColor(android.graphics.Color.WHITE)
+                        setBackgroundColor(android.graphics.Color.parseColor("#2a2a2a"))
+                        setPadding(16, 16, 16, 16)
+                        setText(gallery?.clipsPlaceholderUrl ?: "")
+                        visibility = if (galleryType == GalleryType.CLIPS) android.view.View.VISIBLE else android.view.View.GONE
+                    }
+                    container.addView(placeholderInput)
+
+                    android.app.AlertDialog.Builder(context)
+                        .setTitle("Gallery Settings")
+                        .setView(container)
+                        .setPositiveButton("Save") { _, _ ->
+                            val newPlaceholderUrl = placeholderInput.text.toString().trim().ifEmpty { null }
+                            lifecycleScope.launch {
+                                withContext(Dispatchers.IO) {
+                                    val g = VaultsApp.instance.db.galleryDao().getGalleryById(galleryId)
+                                    if (g != null) {
+                                        VaultsApp.instance.db.galleryDao().update(g.copy(clipsPlaceholderUrl = newPlaceholderUrl))
+                                    }
+                                }
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
             }
         }
 
