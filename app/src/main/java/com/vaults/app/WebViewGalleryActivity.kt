@@ -960,8 +960,8 @@ function buildMedia(item, isFullscreen) {
     // Fullscreen: use src directly for immediate playback with native controls
     if (isFullscreen) {
       v.src = value;
-      v.controls = (type !== 'CLIPS'); // CLIPS: no controls, use tap to play/pause
-      v.loop = (type === 'CLIPS'); // CLIPS: loop in fullscreen
+      v.controls = true;
+      v.loop = true;
       v.autoplay = true;
       v.muted = true;
       v.setAttribute('playsinline', '');
