@@ -493,7 +493,7 @@ body { background: #000; }
   aspect-ratio: 3/4;
   position: relative;
 }
-.swipe-card.landscape .card-inner { aspect-ratio: 16/9; }
+
 .swipe-stamp {
   position: absolute;
   top: 28px;
@@ -549,125 +549,16 @@ body { background: #000; }
   will-change: transform;
 }
 .swipe-card-back .card-inner { aspect-ratio: 3/4; }
-.swipe-card-back.landscape .card-inner { aspect-ratio: 16/9; }
 
-/* ── Flip Swipe View (Toggle Rotation) ─────────────────────────────────────── */
-#swipe-view.flipped {
-  flex-direction: row;
-  padding: 12px;
-  padding-left: calc(12px + env(safe-area-inset-left));
-  padding-right: calc(12px + env(safe-area-inset-right));
-}
-#swipe-view.flipped #swipe-toolbar {
-  position: fixed;
-  left: 12px; top: 50%;
-  transform: translateY(-50%);
-  flex-direction: column;
-  padding: 12px 8px;
-  justify-content: center;
-  gap: 16px;
-}
-#swipe-view.flipped #swipe-toolbar .back-btn {
-  transform: rotate(-90deg);
-  margin: 0;
-}
-#swipe-view.flipped #swipe-toolbar #flipSwipeBtn {
-  transform: rotate(-90deg);
-}
-#swipe-view.flipped #swipe-toolbar #individualMuteBtn {
-  transform: rotate(-90deg);
-}
-#swipe-view.flipped #card-stack {
-  margin: 0;
-}
-#swipe-view.flipped .swipe-card {
-  width: 100%;
-  max-width: 100vw;
-  max-height: 100vh;
-  border-radius: 12px;
-}
-#swipe-view.flipped .swipe-card-back {
-  width: 100%;
-  max-width: 100vw;
-}
-#swipe-view.flipped #swipe-actions {
-  flex-direction: column;
-  position: fixed;
-  right: 12px; top: 50%;
-  transform: translateY(-50%);
-  justify-content: center;
-  gap: 20px;
-  padding: 12px 8px;
-}
-#swipe-view.flipped .swipe-action-btn {
-  width: 40px; height: 40px;
-  font-size: 18px;
-}
-#swipe-view.flipped #swipe-counter {
-  position: fixed;
-  bottom: 12px; left: 50%;
-  transform: translateX(-50%) rotate(-90deg);
-  transform-origin: center;
-  width: max-content;
-  margin: 0 auto;
-}
 
-/* ── CLIPS Sideways Swipe Mode ─────────────────────────────────────────── */
-#swipe-view.clips-landscape {
-  flex-direction: row;
-  padding: 12px;
-  padding-left: calc(12px + env(safe-area-inset-left));
-  padding-right: calc(12px + env(safe-area-inset-right));
-}
-#swipe-view.clips-landscape #swipe-toolbar {
-  flex-direction: column;
-  position: fixed;
-  left: 0; top: 0; bottom: 0;
-  width: 56px;
-  right: auto;
-  padding: 12px 8px;
-  justify-content: flex-start;
-  gap: 16px;
-  border-right: 1px solid #333;
-}
-#swipe-view.clips-landscape #swipe-toolbar .back-btn {
-  transform: rotate(-90deg);
-  margin: 0;
-}
-#swipe-view.clips-landscape #card-stack {
-  margin: 0 56px;
-}
-#swipe-view.clips-landscape .swipe-card {
-  width: 100%;
-  max-width: calc(100vw - 112px);
-  max-height: 100vh;
-  border-radius: 12px;
-}
-#swipe-view.clips-landscape .swipe-card-back {
-  width: 100%;
-  max-width: calc(100vw - 112px);
-}
-#swipe-view.clips-landscape #swipe-actions {
-  flex-direction: column;
-  left: auto; right: 0; top: 0; bottom: 0;
-  width: 56px;
-  justify-content: center;
-  gap: 24px;
-  padding: 12px 8px;
-  background: #1e1e1e;
-  border-left: 1px solid #333;
-}
-#swipe-view.clips-landscape .swipe-action-btn {
-  width: 40px; height: 40px;
-  font-size: 20px;
-}
-#swipe-view.clips-landscape #swipe-counter {
-  position: fixed;
-  bottom: 12px; left: 56px; right: 56px;
-  transform: rotate(-90deg);
-  transform-origin: center;
-  width: max-content;
-  margin: 0 auto;
+/* ── Full 90° Rotate ──────────────────────────────────────────────────────── */
+#swipe-view.rotated {
+  width: 100vh;
+  height: 100vw;
+  left: calc((100vw - 100vh) / 2);
+  top: calc((100vh - 100vw) / 2);
+  transform: rotate(90deg);
+  transform-origin: center center;
 }
 
 /* ── Particle burst ──────────────────────────────────────────────────────── */
@@ -1638,9 +1529,8 @@ function buildSwipeMedia(item) {
 function buildCardElement(orderPos, isBack) {
   if (orderPos < 0 || orderPos >= swipeOrder.length) return null;
   var item = items[swipeOrder[orderPos]];
-  var isLandscape = (galleryType === 'CLIPS');
   var card = document.createElement('div');
-  card.className = (isBack ? 'swipe-card-back' : 'swipe-card') + (isLandscape ? ' landscape' : '');
+  card.className = isBack ? 'swipe-card-back' : 'swipe-card';
   card.setAttribute('data-order-pos', orderPos);
   var inner = document.createElement('div');
   inner.className = 'card-inner';
@@ -1794,8 +1684,14 @@ function attachDrag(card) {
   }
   function onMove(x, y) {
     if (!dragging) return;
-    curX = x - startX;
-    curY = (y - startY) * 0.12;
+    var rotated = document.getElementById('swipe-view').classList.contains('rotated');
+    if (rotated) {
+      curX = (y - startY);
+      curY = (x - startX) * 0.12;
+    } else {
+      curX = x - startX;
+      curY = (y - startY) * 0.12;
+    }
     var rot = curX * 0.07;
     card.style.transform = 'translate(' + curX + 'px,' + curY + 'px) rotate(' + rot + 'deg)';
     var ratio = Math.min(Math.abs(curX) / 90, 1);
@@ -1812,7 +1708,8 @@ function attachDrag(card) {
   function onEnd() {
     if (!dragging) return;
     dragging = false;
-    var threshold = window.innerWidth * 0.35;
+    var rotated = document.getElementById('swipe-view').classList.contains('rotated');
+    var threshold = rotated ? window.innerHeight * 0.35 : window.innerWidth * 0.35;
     if (Math.abs(curX) > threshold) {
       flyOut(curX > 0 ? 'right' : 'left', card);
     } else {
@@ -1870,7 +1767,9 @@ function spawnParticles(dir) {
 function flyOut(dir, card) {
   if (!card) card = cardPool[1];
   if (!card) return;
-  var tx = dir === 'right' ? window.innerWidth * 1.6 : -window.innerWidth * 1.6;
+  var rotated = document.getElementById('swipe-view').classList.contains('rotated');
+  var flyDist = rotated ? window.innerHeight * 1.6 : window.innerWidth * 1.6;
+  var tx = dir === 'right' ? flyDist : -flyDist;
   var rot = dir === 'right' ? 32 : -32;
   card.style.transition = 'transform 0.38s cubic-bezier(0.55,0,1,0.45), opacity 0.38s';
   card.style.transform = 'translate(' + tx + 'px,0) rotate(' + rot + 'deg)';
@@ -1938,8 +1837,7 @@ function toggleSwipeMute() {
 
 function toggleSwipeFlip() {
   var sv = document.getElementById('swipe-view');
-  sv.classList.toggle('flipped');
-  sv.classList.toggle('clips-landscape');
+  sv.classList.toggle('rotated');
 }
 
 var individualMuteEnabled = false;
@@ -1990,7 +1888,7 @@ function enterSwipeMode() {
   cardPoolIdx = [null, null, null];
   var sv = document.getElementById('swipe-view');
   sv.classList.add('active');
-  sv.classList.remove('clips-landscape');
+  sv.classList.remove('rotated');
   
   // Show individual mute button for CLIPS
   var imBtn = document.getElementById('individualMuteBtn');
@@ -2011,8 +1909,7 @@ function exitSwipeMode() {
   document.querySelectorAll('#card-stack video').forEach(function(v) { v.pause(); v.muted = true; });
   var sv = document.getElementById('swipe-view');
   sv.classList.remove('active');
-  sv.classList.remove('clips-landscape');
-  sv.classList.remove('flipped');
+  sv.classList.remove('rotated');
   document.getElementById('card-stack').innerHTML = '';
   cardPool = [null, null, null];
   
