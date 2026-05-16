@@ -438,32 +438,22 @@ body { background: #000; }
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
   flex-direction: column;
-  background: #000;
+  background: #0a0a0a;
   z-index: 200;
+  padding-top: calc(56px + env(safe-area-inset-top));
+  padding-bottom: 100px;
 }
 #swipe-view.active { display: flex; }
 #swipe-toolbar {
-  position: absolute;
-  bottom: 24px;
-  left: 16px;
+  position: fixed;
+  top: 0; left: 0; right: 0;
   display: flex;
-  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  padding-top: calc(12px + env(safe-area-inset-top));
+  background: #1e1e1e;
   z-index: 201;
-  pointer-events: none;
 }
-#swipe-toolbar button {
-  pointer-events: auto;
-  width: 40px; height: 40px;
-  border-radius: 20px;
-  background: rgba(0,0,0,0.55);
-  border: none;
-  color: #fff;
-  font-size: 17px;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  backdrop-filter: blur(4px);
-}
-#swipe-toolbar span { display: none; }
 #card-stack {
   flex: 1;
   position: relative;
@@ -474,21 +464,21 @@ body { background: #000; }
 }
 .swipe-card {
   position: absolute;
-  width: 98%;
-  max-height: 96vh;
-  border-radius: 18px;
+  width: 96%;
+  max-height: 84vh;
+  border-radius: 22px;
   overflow: hidden;
-  background: #000;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+  background: #1a1a1a;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.7);
   touch-action: none;
   user-select: none;
-  transform-origin: center center;
+  transform-origin: center bottom;
   will-change: transform;
 }
 .swipe-card video, .swipe-card iframe, .swipe-card > div {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
 }
 .swipe-card img {
@@ -521,53 +511,44 @@ body { background: #000; }
 .swipe-stamp.like  { left: 20px;  color: #4caf50; border-color: #4caf50; transform: rotate(-18deg); }
 .swipe-stamp.nope  { right: 20px; color: #f44336; border-color: #f44336; transform: rotate(18deg); }
 #swipe-actions {
-  position: absolute;
-  bottom: 24px;
-  right: 16px;
+  position: fixed;
+  bottom: 24px; left: 0; right: 0;
   display: flex;
-  gap: 10px;
+  justify-content: center;
+  gap: 40px;
   z-index: 201;
 }
 .swipe-action-btn {
-  width: 44px; height: 44px;
-  border-radius: 22px;
+  width: 68px; height: 68px;
+  border-radius: 34px;
   border: none;
-  font-size: 20px;
+  font-size: 28px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(30,30,30,0.85);
-  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   transition: transform 0.15s;
 }
-.swipe-action-btn:active { transform: scale(0.85); }
-#btn-nope   { color: #f44336; }
-#btn-like   { color: #4caf50; }
-#btn-burn   { color: #ff6600; font-size: 18px; }
-#btn-del    { color: #f44336; font-size: 18px; }
+.swipe-action-btn:active { transform: scale(0.9); }
+#btn-nope   { background: #1e1e1e; color: #f44336; }
+#btn-like   { background: #1e1e1e; color: #4caf50; }
+#btn-burn   { background: #1e1e1e; color: #ff6600; font-size: 24px; }
 #swipe-counter {
-  position: absolute;
-  bottom: 76px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: rgba(255,255,255,0.5);
-  font-size: 12px;
-  pointer-events: none;
-  z-index: 201;
+  color: #555;
+  font-size: 13px;
+  text-align: center;
+  margin-top: 6px;
 }
 .swipe-card-back {
   position: absolute;
-  width: 98%;
-  border-radius: 18px;
+  width: 96%;
+  border-radius: 22px;
   overflow: hidden;
-  background: #000;
-  box-shadow: 0 3px 15px rgba(0,0,0,0.4);
+  background: #1a1a1a;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
   pointer-events: none;
   will-change: transform;
 }
-.swipe-card-back .card-inner {
-  width: 100%;
-  aspect-ratio: 3/4;
-}
+.swipe-card-back .card-inner { aspect-ratio: 3/4; }
 
 
 /* ── Full 90° Rotate ──────────────────────────────────────────────────────── */
@@ -1569,7 +1550,7 @@ function buildCardElement(orderPos, isBack) {
   }
   card.appendChild(inner);
   if (isBack) {
-    card.style.cssText = 'transform: scale(0.97) translateY(6px); z-index: 1; opacity:0.65;';
+    card.style.cssText = 'transform: scale(0.93) translateY(14px); z-index: 1; opacity:0.65;';
   } else {
     card.style.zIndex = '2';
   }
@@ -1718,8 +1699,8 @@ function attachDrag(card) {
     else          { nopeStamp.style.opacity = ratio; likeStamp.style.opacity = 0; }
     var backCard = cardPool[2];
     if (backCard) {
-      var s = 0.97 + 0.03 * ratio;
-      var ty = 6 - 6 * ratio;
+      var s = 0.93 + 0.07 * ratio;
+      var ty = 14 - 14 * ratio;
       backCard.style.transform = 'scale(' + s + ') translateY(' + ty + 'px)';
       backCard.style.opacity = 0.65 + 0.35 * ratio;
     }
@@ -1739,7 +1720,7 @@ function attachDrag(card) {
       var backCard = cardPool[2];
       if (backCard) {
         backCard.style.transition = 'transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275), opacity 0.4s';
-        backCard.style.transform = 'scale(0.97) translateY(6px)';
+        backCard.style.transform = 'scale(0.93) translateY(14px)';
         backCard.style.opacity = '0.65';
       }
       setTimeout(function() { card.style.transition = ''; }, 420);
