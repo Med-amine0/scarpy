@@ -444,8 +444,8 @@ body { background: #000; }
 #swipe-view.active { display: flex; }
 #swipe-toolbar {
   position: absolute;
-  bottom: 24px;
-  left: 16px;
+  top: 12px;
+  left: 12px;
   display: flex;
   gap: 10px;
   z-index: 201;
@@ -578,6 +578,10 @@ body { background: #000; }
   top: calc((100vh - 100vw) / 2);
   transform: rotate(90deg);
   transform-origin: center center;
+}
+#swipe-view.rotated .swipe-card {
+  width: 88vh;
+  max-height: 98vw;
 }
 
 /* ── Particle burst ──────────────────────────────────────────────────────── */
