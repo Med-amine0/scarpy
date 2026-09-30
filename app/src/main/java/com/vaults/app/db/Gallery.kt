@@ -31,7 +31,7 @@ data class Gallery(
 )
 
 enum class GalleryType {
-    NORMAL, CLIPS, REDGIF, FOLDER, GOONBOX
+    NORMAL, CLIPS, REDGIF, FOLDER
 }
 
 enum class LoadMode {

@@ -14,7 +14,7 @@ import com.vaults.app.db.GalleryItemDao
 
 @Database(
     entities = [Gallery::class, GalleryItem::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -56,6 +56,17 @@ abstract class VaultsDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * GoonBox stopped being a gallery *type* and became a per-add toggle, so any
+         * gallery already created as GOONBOX folds back into NORMAL. Without this,
+         * GalleryType.valueOf("GOONBOX") throws on read and every gallery screen crashes.
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("UPDATE galleries SET type = 'NORMAL' WHERE type = 'GOONBOX'")
+            }
+        }
+
         fun getInstance(context: Context): VaultsDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -63,7 +74,7 @@ abstract class VaultsDatabase : RoomDatabase() {
                     VaultsDatabase::class.java,
                     "vaults_db"
                 ).addMigrations(
-                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
                 ).build()
                 INSTANCE = instance
                 instance

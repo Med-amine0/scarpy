@@ -59,7 +59,6 @@ object MediaResolver {
                 GalleryType.NORMAL -> resolveNormal(value)
                 GalleryType.CLIPS -> resolveNormal(value)
                 GalleryType.REDGIF -> resolveRedgif(value)
-                GalleryType.GOONBOX -> resolveGoonbox(value)
                 GalleryType.FOLDER -> ResolvedMedia(null, error = "Invalid type")
             }
         }
@@ -119,6 +118,14 @@ object MediaResolver {
     }
 
     /**
+     * GoonBox resolution runs ONCE, when the user pastes — never on gallery open.
+     * Shares the same semaphore as [resolve] so a 1000-item batch can't stampede.
+     */
+    suspend fun resolveGoonboxLink(input: String): ResolvedMedia = semaphore.withPermit {
+        withContext(Dispatchers.IO) { resolveGoonbox(input) }
+    }
+
+    /**
      * GoonBox stores only a short ID (`tQl6wdw`). The CDN URLs carry random UUIDs
      * that cannot be derived from the ID, so they must be fetched from the API:
      *
@@ -127,10 +134,10 @@ object MediaResolver {
      * No auth, no key, no rate limit observed. Returns 404 {"message":"Image not found"}
      * for an unknown ID.
      *
-     * grid  -> medium_url   (small, what forums embed)
-     * full  -> original_url (fullscreen / swipe)
+     * url      -> original_url (fullscreen / swipe)
+     * thumbUrl -> medium_url   (grid)
      */
-    private fun resolveGoonbox(input: String): ResolvedMedia {
+    fun resolveGoonbox(input: String): ResolvedMedia {
         // Already a direct CDN URL (…/images4/<uuid>.jpg)? There is no reverse lookup
         // from UUID → ID, but the URL itself is loadable, so use it as-is.
         if (input.contains("cuckcapital.cr/")) {
@@ -138,6 +145,17 @@ object MediaResolver {
             return ResolvedMedia(
                 url = direct,
                 thumbUrl = direct,
+                isVideo = direct.endsWith(".mp4", true) || direct.endsWith(".webm", true)
+            )
+        }
+
+        // A plain direct URL with nothing to resolve — pass through untouched.
+        if (input.trim().startsWith("http") &&
+            !input.contains("goonbox.cr") && !input.contains("cuckcapital.cr")
+        ) {
+            val direct = input.trim()
+            return ResolvedMedia(
+                url = direct,
                 isVideo = direct.endsWith(".mp4", true) || direct.endsWith(".webm", true)
             )
         }
@@ -190,10 +208,11 @@ object MediaResolver {
     }
 
     /**
-     * InputParser for GOONBOX. The forum posts a whole <a><img></a> block (or BBCode)
-     * with no commas or newlines in it, so plain splitting would store the markup
-     * verbatim. Hunt out every embedded /img/{id} link first, then fall back to
-     * treating each line/comma chunk as a URL or bare ID.
+     * Pulls GoonBox tokens out of a pasted blob. The forum posts a whole
+     * &lt;a&gt;&lt;img&gt;&lt;/a&gt; block (or BBCode) with no commas or newlines in it, so plain
+     * splitting would store the markup verbatim. Hunt out every embedded /img/{id}
+     * link first, then treat each line/comma chunk as a CDN URL, a plain direct URL
+     * or a bare ID.
      */
     fun parseGoonboxInput(input: String): List<String> {
         val ids = Regex("""goonbox\.cr/img/([A-Za-z0-9]+)""")
@@ -208,6 +227,7 @@ object MediaResolver {
             .forEach { chunk ->
                 when {
                     chunk.contains("cuckcapital.cr/") -> ids.add(chunk.substringBefore("?"))
+                    chunk.startsWith("http") -> ids.add(chunk)  // plain direct URL
                     else -> extractGoonboxId(chunk)?.let { ids.add(it) }
                 }
             }

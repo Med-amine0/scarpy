@@ -89,8 +89,8 @@ interface GalleryItemDao {
     @Query("UPDATE gallery_items SET sortOrder = sortOrder + :shift WHERE galleryId = :galleryId")
     suspend fun shiftAllSortOrders(galleryId: Long, shift: Int)
 
-    @Query("UPDATE gallery_items SET useMd = :useMd WHERE id = :id")
-    suspend fun updateUseMd(id: Long, useMd: Boolean)
+    @Query("UPDATE gallery_items SET value = :value WHERE id = :id")
+    suspend fun updateValue(id: Long, value: String)
 
     @Query("SELECT COUNT(*) FROM gallery_items WHERE galleryId = :galleryId")
     suspend fun countItems(galleryId: Long): Int

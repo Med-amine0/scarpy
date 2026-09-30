@@ -266,7 +266,6 @@ renderFolders();
             getString(R.string.type_normal),
             getString(R.string.type_clips),
             getString(R.string.type_redgif),
-            getString(R.string.type_goonbox),
             getString(R.string.type_folder)
         )
 
@@ -277,8 +276,7 @@ renderFolders();
                     0 -> GalleryType.NORMAL
                     1 -> GalleryType.CLIPS
                     2 -> GalleryType.REDGIF
-                    3 -> GalleryType.GOONBOX
-                    4 -> GalleryType.FOLDER
+                    3 -> GalleryType.FOLDER
                     else -> GalleryType.NORMAL
                 }
                 showNameDialog(type)

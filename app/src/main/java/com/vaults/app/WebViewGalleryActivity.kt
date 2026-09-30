@@ -135,8 +135,46 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
             galleryType = type
 
-            val items = withContext(Dispatchers.IO) {
+            var items = withContext(Dispatchers.IO) {
                 VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
+            }
+
+            // Legacy: galleries made while GoonBox was still a *type* hold bare IDs
+            // ("tQl6wdw") instead of URLs. Rewrite them once to their direct URL.
+            // Self-terminating — once nothing is left without a scheme this is a no-op.
+            val legacy = items.filter { !it.value.startsWith("http") }
+            if (type == GalleryType.NORMAL && legacy.isNotEmpty()) {
+                val legacyView = android.widget.TextView(this@WebViewGalleryActivity).apply {
+                    setTextColor(android.graphics.Color.WHITE)
+                    setPadding(48, 24, 48, 8)
+                    text = "Converting 0 / ${legacy.size} old GoonBox items"
+                }
+                val legacyDialog = android.app.AlertDialog.Builder(this@WebViewGalleryActivity)
+                    .setTitle("GoonBox")
+                    .setView(legacyView)
+                    .setCancelable(false)
+                    .show()
+                val legacyDone = java.util.concurrent.atomic.AtomicInteger(0)
+                // NB: no withContext(IO) wrapper here — these asyncs must inherit the
+                // Main scope, otherwise legacyView.text is set off the UI thread.
+                legacy.map { item ->
+                    async {
+                        val resolved = MediaResolver.resolveGoonboxLink(item.value)
+                        val url = resolved.url
+                        if (url != null) {
+                            val dao = VaultsApp.instance.db.galleryItemDao()
+                            dao.updateValue(item.id, url)
+                            resolved.thumbUrl?.let { dao.updateResolvedThumbUrl(item.id, it) }
+                        }
+                        legacyView.post {
+                            legacyView.text = "Converting ${legacyDone.incrementAndGet()} / ${legacy.size} old GoonBox items"
+                        }
+                    }
+                }.awaitAll()
+                legacyDialog.dismiss()
+                items = withContext(Dispatchers.IO) {
+                    VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
+                }
             }
 
             val nowSeconds = System.currentTimeMillis() / 1000
@@ -149,15 +187,9 @@ class WebViewGalleryActivity : AppCompatActivity() {
                     put("value", item.value)
                     put("type", type.name)
                     put("weight", item.weight)
-                    // Compute .md.jpg thumbnail URL if useMd is set
-                    if (item.useMd) {
-                        val thumb = item.value.replace(Regex("\\.jpg$", RegexOption.IGNORE_CASE), ".md.jpg")
-                        put("thumbUrl", thumb)
-                    }
-                    // GOONBOX only — other types have no thumb column and must be untouched
-                    if (type == GalleryType.GOONBOX) {
-                        item.resolvedThumbUrl?.let { put("thumbUrl", it) }
-                    }
+                    // Cached goonbox medium_url. Every other type leaves this column
+                    // null, so NORMAL/CLIPS/REDGIF emit exactly what they did before.
+                    item.resolvedThumbUrl?.let { put("thumbUrl", it) }
                     val cached = item.resolvedUrl
                     if (cached != null) {
                         val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
@@ -178,26 +210,9 @@ class WebViewGalleryActivity : AppCompatActivity() {
             val clipsPlaceholderUrl = gallery?.clipsPlaceholderUrl
             loadThumbnailGridFast(itemsJson.toString(), defaultVolume, savedCols, galleryName, items.size, clipsPlaceholderUrl)
 
-            // Preload all MD thumbnails in parallel — they're small (~100kb) so fire all at once
-            if (type == GalleryType.NORMAL) {
-                val mdItems = items.filter { it.useMd }
-                if (mdItems.isNotEmpty()) {
-                    val urlsJs = mdItems.joinToString(",") { "\"${it.value.replace(Regex("\\.jpg$", RegexOption.IGNORE_CASE), ".md.jpg")}\"" }
-                    withContext(Dispatchers.Main) {
-                        binding.webView.evaluateJavascript(
-                            "(function(){[$urlsJs].forEach(function(u){var i=new Image();i.src=u;});})();", null
-                        )
-                    }
-                }
-            }
-
-            // Resolve uncached/expired items in parallel — fast, all at once
-            if (type == GalleryType.REDGIF || type == GalleryType.GOONBOX) {
+            // Resolve uncached/expired RedGifs in parallel — fast, all at once
+            if (type == GalleryType.REDGIF) {
                 val uncached = items.filter { item ->
-                    // GOONBOX URLs never expire — only resolve what we haven't stored yet
-                    if (type == GalleryType.GOONBOX) {
-                        return@filter item.resolvedUrl == null || item.resolvedThumbUrl == null
-                    }
                     val cached = item.resolvedUrl
                     if (cached == null) return@filter true
                     val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
@@ -208,16 +223,10 @@ class WebViewGalleryActivity : AppCompatActivity() {
                         val resolved = MediaResolver.resolve(type, item.value)
                         if (resolved.url != null) {
                             VaultsApp.instance.db.galleryItemDao().updateResolvedUrl(item.id, resolved.url)
-                            if (resolved.thumbUrl != null) {
-                                VaultsApp.instance.db.galleryItemDao()
-                                    .updateResolvedThumbUrl(item.id, resolved.thumbUrl)
-                            }
                             val escapedUrl = resolved.url.replace("'", "\\'")
-                            val escapedThumb = resolved.thumbUrl?.replace("'", "\\'")
                             withContext(Dispatchers.Main) {
                                 binding.webView.evaluateJavascript(
-                                    "injectResolvedUrl(${item.id}, '$escapedUrl'" +
-                                            (escapedThumb?.let { ", '$it'" } ?: "") + ");", null
+                                    "injectResolvedUrl(${item.id}, '$escapedUrl');", null
                                 )
                             }
                         }
@@ -445,8 +454,6 @@ body { background: #000; }
 .edit-btn-up { top: 4px; left: 4px; }
 .edit-btn-down { top: 4px; right: 4px; }
 .edit-btn-delete { bottom: 4px; right: 4px; background: rgba(244,67,54,0.8); }
-.edit-btn-md { bottom: 4px; left: 4px; font-size: 11px; background: rgba(0,120,255,0.8); }
-.thumb.is-md .edit-btn-md { background: rgba(255,105,180,0.9); }
 #swipe-expand {
   display: none;
   position: fixed;
@@ -856,7 +863,7 @@ function changeColumns(delta) {
 
 function buildThumbElement(item, index) {
   var thumb = document.createElement('div');
-  thumb.className = thumbClass + (item.thumbUrl ? ' is-md' : '');
+  thumb.className = thumbClass;
   thumb.setAttribute('data-id', item.id);
   thumb.setAttribute('data-index', index);
   thumb.appendChild(buildMedia(item, false));
@@ -885,7 +892,7 @@ function buildThumbElement(item, index) {
   check.textContent = '✓';
   thumb.appendChild(check);
 
-  if (galleryType === 'NORMAL' || galleryType === 'CLIPS' || galleryType === 'REDGIF' || galleryType === 'GOONBOX') {
+  if (galleryType === 'NORMAL' || galleryType === 'CLIPS' || galleryType === 'REDGIF') {
     var ec = document.createElement('div');
     ec.className = 'edit-controls';
     var bu = document.createElement('button'); bu.className = 'edit-btn edit-btn-up'; bu.innerHTML = '↑';
@@ -895,36 +902,6 @@ function buildThumbElement(item, index) {
     var bx = document.createElement('button'); bx.className = 'edit-btn edit-btn-delete'; bx.innerHTML = '🗑️';
     bx.onclick = (function(t, id) { return function(e) { e.stopPropagation(); toggleSelect(t, id); }; })(thumb, item.id);
     ec.appendChild(bu); ec.appendChild(bd); ec.appendChild(bx);
-    // MD toggle — bottom left, only for NORMAL
-    if (galleryType === 'NORMAL') {
-      var bm = document.createElement('button');
-      bm.className = 'edit-btn edit-btn-md';
-      bm.innerHTML = item.thumbUrl ? 'MD' : 'OG';
-      bm.title = item.thumbUrl ? 'Using MD thumb — tap to switch to original' : 'Using original — tap for MD thumb';
-      bm.onclick = (function(t, i, btn) { return function(e) {
-        e.stopPropagation();
-        var nowMd = !!i.thumbUrl;
-        if (nowMd) {
-          i.thumbUrl = null;
-          t.classList.remove('is-md');
-          btn.innerHTML = 'OG';
-        } else {
-          i.thumbUrl = i.value.replace(/\.jpg$/i, '.md.jpg');
-          t.classList.add('is-md');
-          btn.innerHTML = 'MD';
-        }
-        // Swap displayed image in grid cell
-        var media = t.querySelector('img[data-src], img:not([data-src=""])');
-        if (media) {
-          media.setAttribute('data-src', i.thumbUrl || i.value);
-          media.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
-          visibilityObserver.unobserve(media);
-          visibilityObserver.observe(media);
-        }
-        Android.toggleMd(i.id, !nowMd);
-      }; })(thumb, item, bm);
-      ec.appendChild(bm);
-    }
     thumb.appendChild(ec);
   }
 
@@ -1004,14 +981,6 @@ function buildMedia(item, isFullscreen) {
   var value = item.value;
   var type = galleryType;
 
-  // GOONBOX: item.value is only a short ID ("tQl6wdw"), never a loadable URL.
-  // resolveGoonbox() supplies two: medium_url for the grid, original_url for fullscreen.
-  if (type === 'GOONBOX') {
-    value = isFullscreen
-      ? (item.resolvedUrl || item.thumbUrl || value)
-      : (item.thumbUrl || item.resolvedUrl || value);
-  }
-
   if (type === 'REDGIF') {
     var id = value.includes('redgifs.com') ? value.split('/').pop().split('?')[0] : value;
     id = id.replace(/[^a-zA-Z0-9]/g, '');
@@ -1061,7 +1030,7 @@ function buildMedia(item, isFullscreen) {
   if (isFullscreen) {
     img.src = value; // always full resolution in fullscreen
   } else {
-    var displayUrl = item.thumbUrl || value; // use .md.jpg thumbnail if available
+    var displayUrl = item.thumbUrl || value; // cached medium thumb if we have one
     img.setAttribute('data-src', displayUrl);
     img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
     img.setAttribute('loading', 'lazy');
@@ -1107,11 +1076,10 @@ function observeMedia(container) {
   container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
 }
 
-function injectResolvedUrl(itemId, url, thumbUrl) {
+function injectResolvedUrl(itemId, url) {
   for (var i = 0; i < items.length; i++) {
     if (items[i].id == itemId) {
       items[i].resolvedUrl = url;
-      if (thumbUrl) items[i].thumbUrl = thumbUrl;
       // Update grid cell if visible
       var cell = document.querySelector('[data-id="' + itemId + '"]');
       if (cell) {
@@ -1689,9 +1657,9 @@ function buildSwipeMedia(item) {
     v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
-  // Always use real full URL in swipe mode (never .md thumb)
+  // Always use real full URL in swipe mode
   var img = document.createElement('img');
-  img.src = src;
+  img.src = item.value;
   img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;background:#000;';
   img.onerror = function() { this.style.opacity = '0.2'; };
   // Double-tap opens full-res expand overlay (stays inside swipe mode)
@@ -1700,7 +1668,7 @@ function buildSwipeMedia(item) {
     var now = Date.now();
     if (now - lastTapSwipe < 300) {
       e.preventDefault(); e.stopPropagation();
-      openSwipeExpand(src);
+      openSwipeExpand(item.value);
     }
     lastTapSwipe = now;
   });
@@ -2109,13 +2077,6 @@ function injectSwipeResolved(itemId, url) {
       var first = inner ? inner.firstChild : null;
       if (first && first.tagName !== 'VIDEO') {
         items[swipeOrder[pos]].resolvedUrl = url;
-
-        // GoonBox resolves to a .jpg. The original code below would wrap it in a
-        // <video> and blank the card, so hand images back to the <img> instead.
-        if (galleryType === 'GOONBOX' && !url.match(/\.(mp4|webm)(\?|$)/i)) {
-          if (first.tagName === 'IMG') { first.src = url; }
-          return;
-        }
         var v = document.createElement('video');
         v.src = url; v.autoplay = (slot === 1); v.muted = swipeMuted; v.loop = true;
         v.volume = defaultVolume / 100;
@@ -2210,12 +2171,8 @@ renderGrid();
                         put("value", item.value)
                         put("type", galleryType.name)
                         put("sortOrder", item.sortOrder)
-                        // Carry cached URLs across reloads, or GoonBox blanks the grid
-                        // after every add/delete (its ID is not a loadable URL).
-                        if (galleryType == GalleryType.GOONBOX) {
-                            item.resolvedThumbUrl?.let { put("thumbUrl", it) }
-                            item.resolvedUrl?.let { put("resolvedUrl", it) }
-                        }
+                        // Cached goonbox medium thumb; null for every other type
+                        item.resolvedThumbUrl?.let { put("thumbUrl", it) }
                     }
                     itemsJson.put(obj)
                 }
@@ -2303,13 +2260,6 @@ renderGrid();
         }
 
         @JavascriptInterface
-        fun toggleMd(itemId: Long, useMd: Boolean) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                VaultsApp.instance.db.galleryItemDao().updateUseMd(itemId, useMd)
-            }
-        }
-
-        @JavascriptInterface
         fun saveColumnCount(count: Int) {
             lifecycleScope.launch(Dispatchers.IO) {
                 VaultsApp.instance.db.galleryDao().updateColumnCount(galleryId, count)
@@ -2381,8 +2331,10 @@ renderGrid();
                 }
 
                 val topSwitch = makeRow("Add to top", false)
-                // MD toggle only makes sense for NORMAL image galleries
-                val mdSwitch = if (galleryType == GalleryType.NORMAL) makeRow("MD thumbs (.md.jpg)", false) else null
+                // GoonBox toggle only makes sense for NORMAL galleries; direct URLs
+                // work either way (they're passed through with no API call).
+                val goonboxSwitch = if (galleryType == GalleryType.NORMAL)
+                    makeRow("GoonBox links (resolve to direct URLs)", false) else null
 
                 android.app.AlertDialog.Builder(context)
                     .setTitle("Add Media")
@@ -2390,7 +2342,7 @@ renderGrid();
                     .setPositiveButton("Add") { _, _ ->
                         val text = input.text.toString()
                         if (text.isNotBlank()) {
-                            addItems(text, topSwitch.isChecked, mdSwitch?.isChecked ?: false)
+                            addItems(text, topSwitch.isChecked, goonboxSwitch?.isChecked ?: false)
                         }
                     }
                     .setNegativeButton("Cancel", null)
@@ -2448,12 +2400,15 @@ renderGrid();
             }
         }
 
-        private fun addItems(text: String, addToTop: Boolean = false, useMd: Boolean = false) {
+        /**
+         * @param goonbox when true the paste is interpreted as GoonBox material — share
+         * links, bare IDs, pasted forum HTML or direct CDN URLs — and every token is
+         * resolved to its direct URL NOW, once, with a progress dialog. Gallery opens
+         * afterwards read only from the local DB.
+         */
+        private fun addItems(text: String, addToTop: Boolean = false, goonbox: Boolean = false) {
             lifecycleScope.launch {
-                // GOONBOX: accept a share URL, a bare ID, or a pasted forum HTML/BBCode
-                // snippet — all of which embed the /img/{id} link. Extract the IDs first,
-                // otherwise the whole <a><img></a> blob lands in the DB as one item.
-                val values = if (galleryType == GalleryType.GOONBOX) {
+                val tokens = if (goonbox) {
                     MediaResolver.parseGoonboxInput(text)
                 } else {
                     text.replace("\"", "")
@@ -2462,33 +2417,71 @@ renderGrid();
                         .filter { it.isNotBlank() }
                         .distinct()
                 }
+                if (tokens.isEmpty()) { loadGalleryItems(); return@launch }
+
+                val progressView = android.widget.TextView(context).apply {
+                    setTextColor(android.graphics.Color.WHITE)
+                    setPadding(48, 24, 48, 8)
+                    text = "Resolving 0 / ${tokens.size}"
+                }
+                val progressDialog = if (goonbox) android.app.AlertDialog.Builder(context)
+                    .setTitle("GoonBox")
+                    .setView(progressView)
+                    .setCancelable(false)
+                    .show() else null
+
+                // (directUrl, mediumThumb) pairs. A plain direct URL costs no API call.
+                val resolved: List<Pair<String, String?>> = if (goonbox) {
+                    val done = java.util.concurrent.atomic.AtomicInteger(0)
+                    tokens.map { token ->
+                        async {
+                            val r = MediaResolver.resolveGoonboxLink(token)
+                            val url = r.url
+                            progressView.text = "Resolving ${done.incrementAndGet()} / ${tokens.size}"
+                            if (url != null) url to r.thumbUrl else null
+                        }
+                    }.awaitAll().filterNotNull()
+                } else {
+                    tokens.map { it to null }
+                }
+
+                progressDialog?.dismiss()
+                if (goonbox && resolved.size < tokens.size) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "${tokens.size - resolved.size} of ${tokens.size} could not be resolved",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+                if (resolved.isEmpty()) { loadGalleryItems(); return@launch }
 
                 val existing = withContext(Dispatchers.IO) {
                     VaultsApp.instance.db.galleryItemDao().getExistingValues(galleryId).toSet()
                 }
-                val newValues = values.filter { it !in existing }
-                if (newValues.isEmpty()) { loadGalleryItems(); return@launch }
+                // Dedup on the resolved URL, so pasting the same batch twice is a no-op
+                val newItems = resolved.filter { (value, _) -> value !in existing }
+                if (newItems.isEmpty()) { loadGalleryItems(); return@launch }
 
                 if (addToTop) {
                     withContext(Dispatchers.IO) {
-                        VaultsApp.instance.db.galleryItemDao().shiftAllSortOrders(galleryId, newValues.size)
+                        VaultsApp.instance.db.galleryItemDao().shiftAllSortOrders(galleryId, newItems.size)
                     }
-                    val newItems = newValues.mapIndexed { index, value ->
-                        GalleryItem(galleryId = galleryId, value = value, sortOrder = index, useMd = useMd)
+                    val rows = newItems.mapIndexed { index, (value, thumb) ->
+                        GalleryItem(galleryId = galleryId, value = value, sortOrder = index, resolvedThumbUrl = thumb)
                     }
                     withContext(Dispatchers.IO) {
-                        VaultsApp.instance.db.galleryItemDao().insertAll(newItems)
+                        VaultsApp.instance.db.galleryItemDao().insertAll(rows)
                     }
                 } else {
                     val currentMax = withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
                             .maxOfOrNull { it.sortOrder } ?: -1
                     }
-                    val newItems = newValues.mapIndexed { index, value ->
-                        GalleryItem(galleryId = galleryId, value = value, sortOrder = currentMax + index + 1, useMd = useMd)
+                    val rows = newItems.mapIndexed { index, (value, thumb) ->
+                        GalleryItem(galleryId = galleryId, value = value, sortOrder = currentMax + index + 1, resolvedThumbUrl = thumb)
                     }
                     withContext(Dispatchers.IO) {
-                        VaultsApp.instance.db.galleryItemDao().insertAll(newItems)
+                        VaultsApp.instance.db.galleryItemDao().insertAll(rows)
                     }
                 }
 
