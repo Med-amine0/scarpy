@@ -91,7 +91,10 @@ class WebViewGalleryActivity : AppCompatActivity() {
              * bytes back to the WebView. Everything else falls through untouched.
              */
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                if (request == null) return super.shouldInterceptRequest(view, request)
+                // NB: can't call super here — with `request` narrowed to null Kotlin can't
+                // tell the WebViewClient(WebResourceRequest) overload apart from the
+                // WebViewClient(String) one. The base implementation returns null anyway.
+                if (request == null) return null
                 val url = request.url.toString()
                 val host = request.url.host ?: return super.shouldInterceptRequest(view, request)
                 val isGoonBoxCdn = host == "cuckcapital.cr" || host.endsWith(".cuckcapital.cr") ||
