@@ -147,7 +147,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
                 val legacyView = android.widget.TextView(this@WebViewGalleryActivity).apply {
                     setTextColor(android.graphics.Color.WHITE)
                     setPadding(48, 24, 48, 8)
-                    text = "Converting 0 / ${legacy.size} old GoonBox items"
+                    setText("Converting 0 / ${legacy.size} old GoonBox items")
                 }
                 val legacyDialog = android.app.AlertDialog.Builder(this@WebViewGalleryActivity)
                     .setTitle("GoonBox")
@@ -2419,10 +2419,12 @@ renderGrid();
                 }
                 if (tokens.isEmpty()) { loadGalleryItems(); return@launch }
 
+                // NB: setText, not `text =` — the latter binds to addItems' own `text`
+                // parameter (a val) rather than the TextView property.
                 val progressView = android.widget.TextView(context).apply {
                     setTextColor(android.graphics.Color.WHITE)
                     setPadding(48, 24, 48, 8)
-                    text = "Resolving 0 / ${tokens.size}"
+                    setText("Resolving 0 / ${tokens.size}")
                 }
                 val progressDialog = if (goonbox) android.app.AlertDialog.Builder(context)
                     .setTitle("GoonBox")
@@ -2442,7 +2444,7 @@ renderGrid();
                         }
                     }.awaitAll().filterNotNull()
                 } else {
-                    tokens.map { it to null }
+                    tokens.map { Pair<String, String?>(it, null) }
                 }
 
                 progressDialog?.dismiss()
@@ -2459,15 +2461,15 @@ renderGrid();
                     VaultsApp.instance.db.galleryItemDao().getExistingValues(galleryId).toSet()
                 }
                 // Dedup on the resolved URL, so pasting the same batch twice is a no-op
-                val newItems = resolved.filter { (value, _) -> value !in existing }
+                val newItems = resolved.filter { it.first !in existing }
                 if (newItems.isEmpty()) { loadGalleryItems(); return@launch }
 
                 if (addToTop) {
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().shiftAllSortOrders(galleryId, newItems.size)
                     }
-                    val rows = newItems.mapIndexed { index, (value, thumb) ->
-                        GalleryItem(galleryId = galleryId, value = value, sortOrder = index, resolvedThumbUrl = thumb)
+                    val rows = newItems.mapIndexed { index, pair ->
+                        GalleryItem(galleryId = galleryId, value = pair.first, sortOrder = index, resolvedThumbUrl = pair.second)
                     }
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().insertAll(rows)
@@ -2477,8 +2479,8 @@ renderGrid();
                         VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
                             .maxOfOrNull { it.sortOrder } ?: -1
                     }
-                    val rows = newItems.mapIndexed { index, (value, thumb) ->
-                        GalleryItem(galleryId = galleryId, value = value, sortOrder = currentMax + index + 1, resolvedThumbUrl = thumb)
+                    val rows = newItems.mapIndexed { index, pair ->
+                        GalleryItem(galleryId = galleryId, value = pair.first, sortOrder = currentMax + index + 1, resolvedThumbUrl = pair.second)
                     }
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().insertAll(rows)
