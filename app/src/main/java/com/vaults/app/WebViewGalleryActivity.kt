@@ -5,6 +5,8 @@ import android.content.Context
 import android.os.Bundle
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -13,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import com.vaults.app.databinding.ActivityWebviewGalleryBinding
 import com.vaults.app.db.GalleryItem
 import com.vaults.app.db.GalleryType
+import com.vaults.app.scraper.HttpClient
 import com.vaults.app.scraper.MediaResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -20,6 +23,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -31,6 +35,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_GALLERY_ID = "gallery_id"
+        private const val UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -75,6 +80,47 @@ class WebViewGalleryActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 return false
             }
+
+            /**
+             * GoonBox's CDN (*.cuckcapital.cr) hotlink-blocks requests whose Referer
+             * isn't *.goonbox.cr or *.cuckcapital.cr. This page is loaded with base
+             * URL "https://app.vaults.local", so WebView sends that as the Referer and
+             * the CDN answers 403 {"success":false,"message":"not allowed"}.
+             *
+             * Fetch those requests ourselves with a GoonBox Referer and stream the
+             * bytes back to the WebView. Everything else falls through untouched.
+             */
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                if (request == null) return super.shouldInterceptRequest(view, request)
+                val url = request.url.toString()
+                val host = request.url.host ?: return super.shouldInterceptRequest(view, request)
+                val isGoonBoxCdn = host == "cuckcapital.cr" || host.endsWith(".cuckcapital.cr") ||
+                        host == "goonbox.cr" || host.endsWith(".goonbox.cr")
+                if (!isGoonBoxCdn) {
+                    return super.shouldInterceptRequest(view, request)
+                }
+                return try {
+                    val req = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", UA)
+                        .header("Referer", "https://goonbox.cr/")
+                        .build()
+                    val res = HttpClient.client.newCall(req).execute()
+                    val body = res.body
+                    if (!res.isSuccessful || body == null) {
+                        res.close()
+                        return super.shouldInterceptRequest(view, request)
+                    }
+                    val mime = res.header("Content-Type")?.substringBefore(";")?.trim()
+                        ?: "application/octet-stream"
+                    // text/* needs an encoding; binary must pass null or WebView corrupts it
+                    val encoding = if (mime.startsWith("text/") || mime.contains("json") || mime.contains("javascript")) "UTF-8" else null
+                    WebResourceResponse(mime, encoding, body.byteStream())
+                } catch (e: Exception) {
+                    // Never break the page — let WebView try (and fail) on its own
+                    super.shouldInterceptRequest(view, request)
+                }
+            }
         }
         binding.webView.addJavascriptInterface(Bridge(this), "Android")
     }
@@ -104,6 +150,10 @@ class WebViewGalleryActivity : AppCompatActivity() {
                     if (item.useMd) {
                         val thumb = item.value.replace(Regex("\\.jpg$", RegexOption.IGNORE_CASE), ".md.jpg")
                         put("thumbUrl", thumb)
+                    }
+                    // GOONBOX only — other types have no thumb column and must be untouched
+                    if (type == GalleryType.GOONBOX) {
+                        item.resolvedThumbUrl?.let { put("thumbUrl", it) }
                     }
                     val cached = item.resolvedUrl
                     if (cached != null) {
@@ -139,8 +189,12 @@ class WebViewGalleryActivity : AppCompatActivity() {
             }
 
             // Resolve uncached/expired items in parallel — fast, all at once
-            if (type == GalleryType.REDGIF) {
+            if (type == GalleryType.REDGIF || type == GalleryType.GOONBOX) {
                 val uncached = items.filter { item ->
+                    // GOONBOX URLs never expire — only resolve what we haven't stored yet
+                    if (type == GalleryType.GOONBOX) {
+                        return@filter item.resolvedUrl == null || item.resolvedThumbUrl == null
+                    }
                     val cached = item.resolvedUrl
                     if (cached == null) return@filter true
                     val validTo = Regex("validto=(\\d+)").find(cached)?.groupValues?.getOrNull(1)?.toLongOrNull()
@@ -151,10 +205,16 @@ class WebViewGalleryActivity : AppCompatActivity() {
                         val resolved = MediaResolver.resolve(type, item.value)
                         if (resolved.url != null) {
                             VaultsApp.instance.db.galleryItemDao().updateResolvedUrl(item.id, resolved.url)
+                            if (resolved.thumbUrl != null) {
+                                VaultsApp.instance.db.galleryItemDao()
+                                    .updateResolvedThumbUrl(item.id, resolved.thumbUrl)
+                            }
                             val escapedUrl = resolved.url.replace("'", "\\'")
+                            val escapedThumb = resolved.thumbUrl?.replace("'", "\\'")
                             withContext(Dispatchers.Main) {
                                 binding.webView.evaluateJavascript(
-                                    "injectResolvedUrl(${item.id}, '$escapedUrl');", null
+                                    "injectResolvedUrl(${item.id}, '$escapedUrl'" +
+                                            (escapedThumb?.let { ", '$it'" } ?: "") + ");", null
                                 )
                             }
                         }
@@ -822,7 +882,7 @@ function buildThumbElement(item, index) {
   check.textContent = '✓';
   thumb.appendChild(check);
 
-  if (galleryType === 'NORMAL' || galleryType === 'CLIPS' || galleryType === 'REDGIF') {
+  if (galleryType === 'NORMAL' || galleryType === 'CLIPS' || galleryType === 'REDGIF' || galleryType === 'GOONBOX') {
     var ec = document.createElement('div');
     ec.className = 'edit-controls';
     var bu = document.createElement('button'); bu.className = 'edit-btn edit-btn-up'; bu.innerHTML = '↑';
@@ -941,6 +1001,14 @@ function buildMedia(item, isFullscreen) {
   var value = item.value;
   var type = galleryType;
 
+  // GOONBOX: item.value is only a short ID ("tQl6wdw"), never a loadable URL.
+  // resolveGoonbox() supplies two: medium_url for the grid, original_url for fullscreen.
+  if (type === 'GOONBOX') {
+    value = isFullscreen
+      ? (item.resolvedUrl || item.thumbUrl || value)
+      : (item.thumbUrl || item.resolvedUrl || value);
+  }
+
   if (type === 'REDGIF') {
     var id = value.includes('redgifs.com') ? value.split('/').pop().split('?')[0] : value;
     id = id.replace(/[^a-zA-Z0-9]/g, '');
@@ -1036,10 +1104,11 @@ function observeMedia(container) {
   container.querySelectorAll('[data-src]').forEach(function(el) { visibilityObserver.observe(el); });
 }
 
-function injectResolvedUrl(itemId, url) {
+function injectResolvedUrl(itemId, url, thumbUrl) {
   for (var i = 0; i < items.length; i++) {
     if (items[i].id == itemId) {
       items[i].resolvedUrl = url;
+      if (thumbUrl) items[i].thumbUrl = thumbUrl;
       // Update grid cell if visible
       var cell = document.querySelector('[data-id="' + itemId + '"]');
       if (cell) {
@@ -1051,7 +1120,7 @@ function injectResolvedUrl(itemId, url) {
           observeMedia(cell);
         }
       }
-      // Also update swipe card if swipe mode is open
+      // Also update swipe card if swipe mode is open (swipe always wants the full-res original)
       injectSwipeResolved(itemId, url);
       break;
     }
@@ -1619,7 +1688,7 @@ function buildSwipeMedia(item) {
   }
   // Always use real full URL in swipe mode (never .md thumb)
   var img = document.createElement('img');
-  img.src = item.value;
+  img.src = src;
   img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;background:#000;';
   img.onerror = function() { this.style.opacity = '0.2'; };
   // Double-tap opens full-res expand overlay (stays inside swipe mode)
@@ -1628,7 +1697,7 @@ function buildSwipeMedia(item) {
     var now = Date.now();
     if (now - lastTapSwipe < 300) {
       e.preventDefault(); e.stopPropagation();
-      openSwipeExpand(item.value);
+      openSwipeExpand(src);
     }
     lastTapSwipe = now;
   });
@@ -2037,6 +2106,13 @@ function injectSwipeResolved(itemId, url) {
       var first = inner ? inner.firstChild : null;
       if (first && first.tagName !== 'VIDEO') {
         items[swipeOrder[pos]].resolvedUrl = url;
+
+        // GoonBox resolves to a .jpg. The original code below would wrap it in a
+        // <video> and blank the card, so hand images back to the <img> instead.
+        if (galleryType === 'GOONBOX' && !url.match(/\.(mp4|webm)(\?|$)/i)) {
+          if (first.tagName === 'IMG') { first.src = url; }
+          return;
+        }
         var v = document.createElement('video');
         v.src = url; v.autoplay = (slot === 1); v.muted = swipeMuted; v.loop = true;
         v.volume = defaultVolume / 100;
@@ -2131,6 +2207,12 @@ renderGrid();
                         put("value", item.value)
                         put("type", galleryType.name)
                         put("sortOrder", item.sortOrder)
+                        // Carry cached URLs across reloads, or GoonBox blanks the grid
+                        // after every add/delete (its ID is not a loadable URL).
+                        if (galleryType == GalleryType.GOONBOX) {
+                            item.resolvedThumbUrl?.let { put("thumbUrl", it) }
+                            item.resolvedUrl?.let { put("resolvedUrl", it) }
+                        }
                     }
                     itemsJson.put(obj)
                 }
@@ -2365,11 +2447,18 @@ renderGrid();
 
         private fun addItems(text: String, addToTop: Boolean = false, useMd: Boolean = false) {
             lifecycleScope.launch {
-                val values = text.replace("\"", "")
-                    .split(",", "\n", "\r\n")
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
+                // GOONBOX: accept a share URL, a bare ID, or a pasted forum HTML/BBCode
+                // snippet — all of which embed the /img/{id} link. Extract the IDs first,
+                // otherwise the whole <a><img></a> blob lands in the DB as one item.
+                val values = if (galleryType == GalleryType.GOONBOX) {
+                    MediaResolver.parseGoonboxInput(text)
+                } else {
+                    text.replace("\"", "")
+                        .split(",", "\n", "\r\n")
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                }
 
                 val existing = withContext(Dispatchers.IO) {
                     VaultsApp.instance.db.galleryItemDao().getExistingValues(galleryId).toSet()

@@ -149,6 +149,7 @@ var editMode = false;
 function icon(type) {
   if (type === 'CLIPS') return '🎬';
   if (type === 'REDGIF') return '🔥';
+  if (type === 'GOONBOX') return '📦';
   return '🖼️';
 }
 
@@ -202,14 +203,15 @@ render();
     }
 
     private fun showAddDialog() {
-        val types = arrayOf("Normal (Images/Video)", "Clips", "RedGif")
+        val types = arrayOf("Normal (Images/Video)", "Clips", "RedGif", "GoonBox")
         MaterialAlertDialogBuilder(this)
             .setTitle("Gallery type")
             .setItems(types) { _, which ->
                 val type = when (which) {
                     0 -> GalleryType.NORMAL
                     1 -> GalleryType.CLIPS
-                    else -> GalleryType.REDGIF
+                    2 -> GalleryType.REDGIF
+                    else -> GalleryType.GOONBOX
                 }
                 showNameDialog(type)
             }.show()

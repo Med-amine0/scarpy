@@ -25,5 +25,6 @@ data class GalleryItem(
     val sortOrder: Int = 0,
     val resolvedUrl: String? = null,
     val weight: Int = 1,
-    val useMd: Boolean = false  // if true, grid/swipe show .md.jpg thumbnail; fullscreen loads full URL
+    val useMd: Boolean = false,  // if true, grid/swipe show .md.jpg thumbnail; fullscreen loads full URL
+    val resolvedThumbUrl: String? = null  // GOONBOX: medium_url for the grid (cached so we don't re-hit the API)
 )

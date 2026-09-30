@@ -14,7 +14,7 @@ import com.vaults.app.db.GalleryItemDao
 
 @Database(
     entities = [Gallery::class, GalleryItem::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -50,13 +50,21 @@ abstract class VaultsDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE gallery_items ADD COLUMN resolvedThumbUrl TEXT")
+            }
+        }
+
         fun getInstance(context: Context): VaultsDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     VaultsDatabase::class.java,
                     "vaults_db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+                ).addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6
+                ).build()
                 INSTANCE = instance
                 instance
             }

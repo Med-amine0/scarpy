@@ -43,6 +43,7 @@ class GalleryListAdapter(
                 GalleryType.CLIPS -> "\uD83D\uDE33 Clips"
                 GalleryType.REDGIF -> "\uD83D\uDE08 RedGif"
                 GalleryType.FOLDER -> "\uD83D\uDCC1 Folder"
+                GalleryType.GOONBOX -> "📦 GoonBox"
             }
 
             itemView.setOnClickListener { onItemClick(gallery) }

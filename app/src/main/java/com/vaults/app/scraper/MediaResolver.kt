@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
@@ -29,7 +30,9 @@ data class ResolvedMedia(
     val url: String? = null,
     val embedUrl: String? = null,
     val isVideo: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    // Secondary/small rendition used by the grid. Fullscreen always uses `url`.
+    val thumbUrl: String? = null
 )
 
 object MediaResolver {
@@ -56,6 +59,7 @@ object MediaResolver {
                 GalleryType.NORMAL -> resolveNormal(value)
                 GalleryType.CLIPS -> resolveNormal(value)
                 GalleryType.REDGIF -> resolveRedgif(value)
+                GalleryType.GOONBOX -> resolveGoonbox(value)
                 GalleryType.FOLDER -> ResolvedMedia(null, error = "Invalid type")
             }
         }
@@ -112,6 +116,103 @@ object MediaResolver {
         } catch (e: Exception) {
             ResolvedMedia(embedUrl = embedUrl, isVideo = true)
         }
+    }
+
+    /**
+     * GoonBox stores only a short ID (`tQl6wdw`). The CDN URLs carry random UUIDs
+     * that cannot be derived from the ID, so they must be fetched from the API:
+     *
+     *   GET https://goonbox.cr/api/images/{id}   -> { image: { original_url, medium_url, thumb_url, mime } }
+     *
+     * No auth, no key, no rate limit observed. Returns 404 {"message":"Image not found"}
+     * for an unknown ID.
+     *
+     * grid  -> medium_url   (small, what forums embed)
+     * full  -> original_url (fullscreen / swipe)
+     */
+    private fun resolveGoonbox(input: String): ResolvedMedia {
+        // Already a direct CDN URL (…/images4/<uuid>.jpg)? There is no reverse lookup
+        // from UUID → ID, but the URL itself is loadable, so use it as-is.
+        if (input.contains("cuckcapital.cr/")) {
+            val direct = input.trim().substringBefore("?")
+            return ResolvedMedia(
+                url = direct,
+                thumbUrl = direct,
+                isVideo = direct.endsWith(".mp4", true) || direct.endsWith(".webm", true)
+            )
+        }
+
+        val id = extractGoonboxId(input)
+            ?: return ResolvedMedia(error = "Not a GoonBox link")
+
+        return try {
+            val response = HttpClient.client
+                .newCall(HttpClient.buildRequest("https://goonbox.cr/api/images/$id"))
+                .execute()
+
+            val body = response.body?.string()
+            if (!response.isSuccessful || body.isNullOrBlank()) {
+                return ResolvedMedia(error = if (response.code == 404) "Image not found" else "GoonBox error ${response.code}")
+            }
+
+            val image = JSONObject(body).optJSONObject("image")
+                ?: return ResolvedMedia(error = "GoonBox: bad response")
+
+            val original = image.optString("original_url").takeIf { it.isNotBlank() }
+            val medium = image.optString("medium_url").takeIf { it.isNotBlank() }
+            val thumb = image.optString("thumb_url").takeIf { it.isNotBlank() }
+
+            if (original == null) return ResolvedMedia(error = "GoonBox: no url")
+
+            val mime = image.optString("mime")
+            ResolvedMedia(
+                url = original,
+                thumbUrl = medium ?: thumb,
+                isVideo = mime.startsWith("video/")
+            )
+        } catch (e: Exception) {
+            ResolvedMedia(error = "GoonBox: ${e.message ?: "failed"}")
+        }
+    }
+
+    /**
+     * Pulls the ID out of anything the user might paste: the share URL, a bare ID,
+     * a forum HTML snippet or BBCode — all of which embed the /img/{id} link.
+     */
+    fun extractGoonboxId(input: String): String? {
+        Regex("""goonbox\.cr/img/([A-Za-z0-9]+)""").find(input)?.let {
+            return it.groupValues[1]
+        }
+        // Bare ID pasted on its own (e.g. "tQl6wdw")
+        val bare = input.trim().substringBefore("?").substringAfterLast("/")
+        if (bare.matches(Regex("[A-Za-z0-9]{5,12}"))) return bare
+        return null
+    }
+
+    /**
+     * InputParser for GOONBOX. The forum posts a whole <a><img></a> block (or BBCode)
+     * with no commas or newlines in it, so plain splitting would store the markup
+     * verbatim. Hunt out every embedded /img/{id} link first, then fall back to
+     * treating each line/comma chunk as a URL or bare ID.
+     */
+    fun parseGoonboxInput(input: String): List<String> {
+        val ids = Regex("""goonbox\.cr/img/([A-Za-z0-9]+)""")
+            .findAll(input)
+            .map { it.groupValues[1] }
+            .toMutableList()
+
+        // Chunks with no goonbox link: bare IDs, or direct CDN URLs (kept verbatim)
+        input.replace("\"", "").split(",", "\n", "\r\n")
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.contains("goonbox.cr/img/") }
+            .forEach { chunk ->
+                when {
+                    chunk.contains("cuckcapital.cr/") -> ids.add(chunk.substringBefore("?"))
+                    else -> extractGoonboxId(chunk)?.let { ids.add(it) }
+                }
+            }
+
+        return ids.distinct()
     }
 }
 
