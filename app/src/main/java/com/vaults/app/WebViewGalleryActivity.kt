@@ -164,6 +164,7 @@ class WebViewGalleryActivity : AppCompatActivity() {
                         if (url != null) {
                             val dao = VaultsApp.instance.db.galleryItemDao()
                             dao.updateValue(item.id, url)
+                            resolved.mediumUrl?.let { dao.updateResolvedUrl(item.id, it) }
                             resolved.thumbUrl?.let { dao.updateResolvedThumbUrl(item.id, it) }
                         }
                         legacyView.post {
@@ -1016,6 +1017,18 @@ function buildMedia(item, isFullscreen) {
       img.setAttribute('data-video-src', value);
       return img;
     }
+    // Grid: show the smallest rendition as a still instead of a resident <video>.
+    // Gated on thumbUrl, which only GoonBox items ever populate — normal/Clips/RedGifs
+    // fall through to the original video-in-grid behaviour untouched.
+    if (item.thumbUrl) {
+      var gv = document.createElement('img');
+      gv.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+      gv.style.cssText = 'width:100%;height:100%;object-fit:cover;background:#1a1a1a;';
+      gv.setAttribute('data-src', item.thumbUrl);
+      gv.setAttribute('loading', 'lazy');
+      gv.setAttribute('decoding', 'async');
+      return gv;
+    }
     // Other galleries: use video in grid
     v.src = value;
     v.autoplay = true;
@@ -1657,9 +1670,10 @@ function buildSwipeMedia(item) {
     v.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     return v;
   }
-  // Always use real full URL in swipe mode
+  // Medium rendition when we have one, otherwise fall back to the original.
+  // openSwipeExpand below still gets the ORIGINAL — expand always means full size.
   var img = document.createElement('img');
-  img.src = item.value;
+  img.src = src;
   img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;background:#000;';
   img.onerror = function() { this.style.opacity = '0.2'; };
   // Double-tap opens full-res expand overlay (stays inside swipe mode)
@@ -2171,8 +2185,13 @@ renderGrid();
                         put("value", item.value)
                         put("type", galleryType.name)
                         put("sortOrder", item.sortOrder)
-                        // Cached goonbox medium thumb; null for every other type
+                        // Cached goonbox renditions. thumbUrl is null for every other
+                        // type, so RedGifs/Clips emit exactly the JSON they did before;
+                        // resolvedUrl is gated because RedGifs does populate it.
                         item.resolvedThumbUrl?.let { put("thumbUrl", it) }
+                        if (galleryType == GalleryType.NORMAL) {
+                            item.resolvedUrl?.let { put("resolvedUrl", it) }
+                        }
                     }
                     itemsJson.put(obj)
                 }
@@ -2432,19 +2451,19 @@ renderGrid();
                     .setCancelable(false)
                     .show() else null
 
-                // (directUrl, mediumThumb) pairs. A plain direct URL costs no API call.
-                val resolved: List<Pair<String, String?>> = if (goonbox) {
+                // (original, medium, thumb) triples. A plain direct URL costs no API call.
+                val resolved: List<Triple<String, String?, String?>> = if (goonbox) {
                     val done = java.util.concurrent.atomic.AtomicInteger(0)
                     tokens.map { token ->
                         async {
                             val r = MediaResolver.resolveGoonboxLink(token)
                             val url = r.url
                             progressView.text = "Resolving ${done.incrementAndGet()} / ${tokens.size}"
-                            if (url != null) url to r.thumbUrl else null
+                            if (url != null) Triple<String, String?, String?>(url, r.mediumUrl, r.thumbUrl) else null
                         }
                     }.awaitAll().filterNotNull()
                 } else {
-                    tokens.map { Pair<String, String?>(it, null) }
+                    tokens.map { Triple<String, String?, String?>(it, null, null) }
                 }
 
                 progressDialog?.dismiss()
@@ -2468,8 +2487,8 @@ renderGrid();
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().shiftAllSortOrders(galleryId, newItems.size)
                     }
-                    val rows = newItems.mapIndexed { index, pair ->
-                        GalleryItem(galleryId = galleryId, value = pair.first, sortOrder = index, resolvedThumbUrl = pair.second)
+                    val rows = newItems.mapIndexed { index, t ->
+                        GalleryItem(galleryId = galleryId, value = t.first, sortOrder = index, resolvedUrl = t.second, resolvedThumbUrl = t.third)
                     }
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().insertAll(rows)
@@ -2479,8 +2498,8 @@ renderGrid();
                         VaultsApp.instance.db.galleryItemDao().getItemsOnce(galleryId)
                             .maxOfOrNull { it.sortOrder } ?: -1
                     }
-                    val rows = newItems.mapIndexed { index, pair ->
-                        GalleryItem(galleryId = galleryId, value = pair.first, sortOrder = currentMax + index + 1, resolvedThumbUrl = pair.second)
+                    val rows = newItems.mapIndexed { index, t ->
+                        GalleryItem(galleryId = galleryId, value = t.first, sortOrder = currentMax + index + 1, resolvedUrl = t.second, resolvedThumbUrl = t.third)
                     }
                     withContext(Dispatchers.IO) {
                         VaultsApp.instance.db.galleryItemDao().insertAll(rows)

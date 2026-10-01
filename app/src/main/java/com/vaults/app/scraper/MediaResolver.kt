@@ -31,8 +31,13 @@ data class ResolvedMedia(
     val embedUrl: String? = null,
     val isVideo: Boolean = false,
     val error: String? = null,
-    // Secondary/small rendition used by the grid. Fullscreen always uses `url`.
-    val thumbUrl: String? = null
+    // GoonBox serves three renditions of the same asset:
+    //   thumbUrl   -> smallest, grid thumbnails
+    //   mediumUrl  -> mid-size, swipe/tinder cards
+    //   url        -> original, fullscreen + expand
+    // Both secondary fields default to null, so RedGifs/Clips are unaffected.
+    val thumbUrl: String? = null,
+    val mediumUrl: String? = null
 )
 
 object MediaResolver {
@@ -134,17 +139,19 @@ object MediaResolver {
      * No auth, no key, no rate limit observed. Returns 404 {"message":"Image not found"}
      * for an unknown ID.
      *
-     * url      -> original_url (fullscreen / swipe)
-     * thumbUrl -> medium_url   (grid)
+     * thumbUrl   -> thumb_url    (grid, ~17kb)
+     * mediumUrl  -> medium_url   (swipe/tinder, ~99kb)
+     * url        -> original_url (fullscreen / expand, ~254kb)
      */
     fun resolveGoonbox(input: String): ResolvedMedia {
         // Already a direct CDN URL (…/images4/<uuid>.jpg)? There is no reverse lookup
         // from UUID → ID, but the URL itself is loadable, so use it as-is.
         if (input.contains("cuckcapital.cr/")) {
+            // Single rendition available — no reverse lookup from UUID to ID, so
+            // thumb/medium stay null and every view falls back to this URL.
             val direct = input.trim().substringBefore("?")
             return ResolvedMedia(
                 url = direct,
-                thumbUrl = direct,
                 isVideo = direct.endsWith(".mp4", true) || direct.endsWith(".webm", true)
             )
         }
@@ -183,10 +190,18 @@ object MediaResolver {
             if (original == null) return ResolvedMedia(error = "GoonBox: no url")
 
             val mime = image.optString("mime")
+            val isVideo = mime.startsWith("video/")
+            // A video's medium_url may be a still poster. Only carry it into the swipe
+            // slot if it's actually a playable file, otherwise tinder would degrade a
+            // playing clip to a static frame — better to fall back to the original.
+            val swipeUrl = if (isVideo) medium?.takeIf {
+                it.endsWith(".mp4", true) || it.endsWith(".webm", true)
+            } else medium
             ResolvedMedia(
                 url = original,
-                thumbUrl = medium ?: thumb,
-                isVideo = mime.startsWith("video/")
+                thumbUrl = thumb ?: medium,
+                mediumUrl = swipeUrl,
+                isVideo = isVideo
             )
         } catch (e: Exception) {
             ResolvedMedia(error = "GoonBox: ${e.message ?: "failed"}")

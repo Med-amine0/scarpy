@@ -26,5 +26,5 @@ data class GalleryItem(
     val resolvedUrl: String? = null,
     val weight: Int = 1,
     val useMd: Boolean = false,  // DORMANT — .md.jpg was removed; column kept only so the schema doesn't change
-    val resolvedThumbUrl: String? = null  // goonbox: medium_url for the grid, resolved once at add time
+    val resolvedThumbUrl: String? = null  // goonbox: thumb_url (smallest), for grid thumbnails
 )
